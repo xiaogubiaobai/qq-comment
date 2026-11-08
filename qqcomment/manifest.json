@@ -1,0 +1,23 @@
+{
+  "版本": 1,
+  "说明": "",
+  "最低APK版本": 0,
+  "文件": {
+    "rotation.js": {
+      "sha256": "6fa7e8791515c0ceff6b29afe264999f419df327348dc42c2a1a61bd73e364be",
+      "大小": 222964
+    },
+    "sender.js": {
+      "sha256": "69a6e1829382f98c0f791c440b1b3b86335891bd03e892e2a4a8210f75d7f069",
+      "大小": 55329
+    },
+    "hook.js": {
+      "sha256": "072c0310c995eb1066bd2ca0da3459ded1f8dd3bbd7606ce9b546e699a6c0044",
+      "大小": 7368
+    },
+    "ui/index.html": {
+      "sha256": "8f613eb3f089ccf021337e490f7e123b2ebb5c6e907e6cd78ecfe6d47a97d85c",
+      "大小": 171474
+    }
+  }
+}
