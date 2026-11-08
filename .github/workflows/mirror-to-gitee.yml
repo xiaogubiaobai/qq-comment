@@ -1,0 +1,179 @@
+# 发一个 GitHub Release,自动把 APK 搬到 Gitee。
+#
+# 这个文件的家在 **公开仓** jerfantasyfor/qq-comment 的
+#   .github/workflows/mirror-to-gitee.yml
+# 这里这份是**源**(跟着开发仓走版本),改完要同步推过去。
+#
+# 为什么要它:国内用户基本连不上 GitHub,所以 Gitee 那份不是可选的。
+# 而手动传两遍 = 迟早有一遍忘了、或者传错名字 —— 两个镜像一旦不一致,
+# 用户拿到的就是薛定谔的包。让机器搬,机房对机房,本地什么都不用上传。
+#
+# ⚠️ 它**不碰签名密钥**。APK 是在本机 `python 打包.py --打` 签好、
+#    由你发到 GitHub Release 的;这里只做「下载已签好的成品 → 传到 Gitee」。
+#    keystore 和口令一步都不用离开你的电脑。
+#
+# ⚠️ 层 2 那四个文件(rotation.js / sender.js / hook.js / ui/index.html + manifest)
+#    **不归它管** —— `发布.py --推` 已经把同一份字节分别推两个镜像了,
+#    而且它懂「manifest 最后推」那条规矩。别在这儿再来一套,两套会打架。
+#
+# ⚠️ 铁律 18:这个文件里**一个反斜杠都没有**。所以下面的 curl 全写在一行上,
+#    不用行尾续行符 —— 行长换可读性,这个仓宁可要前者。
+
+name: mirror-to-gitee
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要搬哪个 Release 的 tag(比如 v1.0)"
+        required: true
+
+# ⚠️ 并发组带上事件名。签到线踩过:push 和 release 同时触发,同组里只能排一个,
+#    后到的把**排队中的 release 挤掉了** —— 而 release 那次才是搬 APK 的,
+#    结果 APK 没上 Gitee,工作流还一片绿。
+concurrency:
+  group: mirror-to-gitee-${{ github.event_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GITEE_OWNER: flyten1129
+  GITEE_REPO: qq-comment
+  # ⚠️ 附件名要和本地出包**一字不差**:Gitee 用上传时的文件名给附件命名,
+  #    下载链 /releases/download/<tag>/<这个名字> 是按它拼的。
+  #    签到线 0.1.7 那次存成 apk.apk,下载链当场 404,还就这么发出去了。
+  APK_NAME: qq-comment.apk
+  # ⚠️⚠️ Gitee 侧**永远只有一个正式 Release**,tag 固定 `apk`,每版换掉里面的附件 ——
+  #    下载链因此永不变。
+  #    别按 v1.0 这种版本号建:那样每版一个 Release,下载链只能靠 `latest` 别名去指
+  #    「最新那个」,而**再发任何一个 Release(比如 beta)它就指过去**,正式链当场 404。
+  #    签到线 2026-09-16 为这个挂了 25 分钟。
+  #    (GitHub 的 latest 是真别名,所以 GitHub 侧用版本号 tag 没问题。)
+  APK_TAG: apk
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 看看要搬哪一版
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+            # ⚠️ 预发布(beta)不能走这条路:这条路会**覆盖掉正式那份附件**。
+            #    以后真要发 beta,照签到线的做法另给它一个 tag,别混进来。
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              echo "::notice::${TAG} 是预发布,不搬 —— 这条路会覆盖掉正式那份附件"
+              echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          fi
+          echo "要搬的是 ${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "skip=0" >> "$GITHUB_OUTPUT"
+
+      - name: 从 GitHub Release 取已签名的 APK
+        if: steps.pick.outputs.skip != '1'
+        id: grab
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.pick.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # ⚠️ 必须下成**最终文件名**(见 APK_NAME 那条注释)。
+          # ⚠️ 重试:附件有时比 release 事件晚几秒才可下载。
+          OK=0
+          for w in 0 5 10 20; do
+            if [ "$w" != "0" ]; then sleep "$w"; fi
+            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$APK_NAME" --output "$APK_NAME" --clobber; then OK=1; break; fi
+            echo "还没下到,再等等"
+          done
+          test "$OK" = "1" || { echo "::error::$TAG 里找不到附件 $APK_NAME —— 本地出包的名字对不上?"; exit 1; }
+          SIZE=$(stat -c%s "$APK_NAME")
+          SHA=$(sha256sum "$APK_NAME" | cut -d' ' -f1)
+          echo "GitHub 那份:${SIZE} 字节  sha256 ${SHA}"
+          # 顺手确认真是个 APK(zip 头 PK),别把一页 HTML 错误页当成包传出去
+          test "$(head -c2 "$APK_NAME" | xxd -p)" = "504b" || { echo "::error::下到的不是 zip/APK"; exit 1; }
+          echo "size=${SIZE}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: 搬到 Gitee
+        if: steps.pick.outputs.skip != '1'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.pick.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test -n "${GITEE_TOKEN}" || { echo "::error::没有 GITEE_TOKEN —— 仓库 Settings → Secrets → Actions 里加一个"; exit 1; }
+          API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"
+
+          RELNAME=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name --jq '.name // empty')
+          RELBODY=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // empty')
+          if [ -z "$RELNAME" ]; then RELNAME="$TAG"; fi
+
+          echo "── 找/建固定 tag(${APK_TAG})的 Gitee Release ──"
+          RID=$(curl -sS "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" | jq -r --arg t "$APK_TAG" '.[] | select(.tag_name==$t) | .id' | head -1)
+          # ⚠️ 必须显式声明 charset=utf-8,不然 Gitee 按别的编码解,中文标题直接乱码(踩过)。
+          CT="Content-Type: application/x-www-form-urlencoded; charset=utf-8"
+          if [ -z "$RID" ] || [ "$RID" = "null" ]; then
+            RID=$(curl -sS -X POST "${API}/releases" -H "$CT" --data-urlencode "access_token=${GITEE_TOKEN}" --data-urlencode "tag_name=${APK_TAG}" --data-urlencode "name=${RELNAME}" --data-urlencode "body=${RELBODY}" --data-urlencode "target_commitish=master" | jq -r '.id')
+            echo "   新建了 $RID"
+          else
+            echo "   复用已有的 $RID,标题和说明换成这一版的"
+            curl -sS -X PATCH "${API}/releases/${RID}" -H "$CT" --data-urlencode "access_token=${GITEE_TOKEN}" --data-urlencode "tag_name=${APK_TAG}" --data-urlencode "name=${RELNAME}" --data-urlencode "body=${RELBODY}" >/dev/null || echo "   (改标题失败,不致命)"
+          fi
+          test -n "$RID" -a "$RID" != "null" || { echo "::error::拿不到 Gitee release id"; exit 1; }
+
+          # ⚠️⚠️ **先删后传,顺序不能反。** 签到线 2026-10-24 实测:Gitee 允许同名附件并存,
+          #    而 /releases/download/<tag>/<名> 服务的是**最先传的那一份** ——
+          #    先传后删的话,中间那段时间固定链发的是旧包。
+          echo "── 同名旧附件先删掉 ──"
+          for i in $(curl -sS "${API}/releases/${RID}/attach_files?access_token=${GITEE_TOKEN}" | jq -r --arg n "$APK_NAME" '.[]? | select(.name==$n) | .id'); do
+            curl -sS -X DELETE "${API}/releases/${RID}/attach_files/${i}?access_token=${GITEE_TOKEN}" >/dev/null || true
+            echo "   删了旧附件 $i"
+          done
+
+          echo "── 上传 ──"
+          curl -sS -X POST "${API}/releases/${RID}/attach_files" -F "access_token=${GITEE_TOKEN}" -F "file=@${APK_NAME}" | jq -r '.browser_download_url // .'
+
+      - name: 回验固定直链
+        if: steps.pick.outputs.skip != '1'
+        env:
+          WANT_SHA: ${{ steps.grab.outputs.sha }}
+          WANT_SIZE: ${{ steps.grab.outputs.size }}
+        run: |
+          set -euo pipefail
+          # ⚠️ 段序:Gitee 是 /releases/download/<tag>/<文件名>。
+          # ⚠️ 这里**必须用固定 tag**,不能写 latest —— latest 是「最新那个 Release」的别名,
+          #    拿它回验的话,哪天别的 Release 更新了,验的就不是这一份。
+          U="https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}/releases/download/${APK_TAG}/${APK_NAME}"
+          echo "$U"
+          # ⚠️ 传完之后那条固定直链要过几秒才解析得到,**3 秒不够**(签到线实测 404)。
+          #    所以重试、越等越久;一直拿不到才算失败。
+          CODE=000
+          for w in 3 5 8 12 20; do
+            sleep "$w"
+            CODE=$(curl -sSL --max-time 300 -o got.bin -w '%{http_code}' "$U" || echo 000)
+            if [ "$CODE" = "200" ]; then break; fi
+            echo "   HTTP ${CODE},再等等"
+          done
+          # ⚠️ 必须**真判定**。签到线上一版只 echo 状态码,结果附件名错了、链接 404,
+          #    工作流照样一片绿 —— 等于没验。「红得没道理」比「坏了没人知道」好。
+          test "$CODE" = "200" || { echo "::error::固定直链拿不到 200(${CODE})"; exit 1; }
+          GOT_SIZE=$(stat -c%s got.bin)
+          GOT_SHA=$(sha256sum got.bin | cut -d' ' -f1)
+          echo "回验:${GOT_SIZE} 字节  sha256 ${GOT_SHA}"
+          # ⚠️ 比 sha256,不只比大小 —— Gitee 给过 HTTP 200 的**残包**
+          #    (同一个附件连拉 6 次坏 2 次,大小都不一样但都是 200)。
+          test "$GOT_SIZE" = "$WANT_SIZE" || { echo "::error::大小对不上(要 ${WANT_SIZE})"; exit 1; }
+          test "$GOT_SHA" = "$WANT_SHA" || { echo "::error::sha256 对不上(要 ${WANT_SHA})"; exit 1; }
+          echo "::notice::Gitee 固定直链已就绪 ${U}"
