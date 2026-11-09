@@ -23,7 +23,13 @@
 -->
 <style>
   :root{
-    --paper:#fff; --ink:#16181c; --ink2:#5b6270; --ink3:#8d95a3;
+    /* 🔴 2026-11-09 UI 风格(打样 v49 方案 B + v50 的「整体 +1」)。
+       --paper 原来是 #fff —— 页面和卡片同色,只靠 1px 浅灰边分区,
+       手机上那条线基本看不见,用户原话「太素 / 区域也有点不明确」。
+       现在:**页面退成浅灰、卡片保持白**,靠底色差把区域立起来。
+       ⚠️ 只动颜色,不动任何尺寸关系。 */
+    --paper:#eef0f3; --card:#fff;
+    --ink:#16181c; --ink2:#5b6270; --ink3:#8d95a3;
     --line:#e6e8ec; --soft:#f5f6f8; --acc:#2f6be6; --accbg:#eaf1ff;
     --ok:#1f8b5f; --okbg:#e6f5ee; --warn:#b3730a; --warnbg:#fdf2e0; --warnline:#f0d9a8;
     --bad:#c23b36; --badbg:#fdecec;
@@ -33,33 +39,33 @@
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   html,body{height:100%}
   body{background:var(--paper);color:var(--ink);
-       font:14px/1.6 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+       font:15px/1.6 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
        display:flex;flex-direction:column;overscroll-behavior:none}
 
   /* ── 顶栏 ── */
   .top{display:flex;align-items:center;gap:10px;padding:10px 13px;
-       border-bottom:1px solid var(--line);flex:0 0 auto}
-  .top h1{font-size:15.5px;font-weight:500;flex:1;min-width:0;
+       border-bottom:1px solid var(--line);flex:0 0 auto;background:var(--card)}
+  .top h1{font-size:16.5px;font-weight:500;flex:1;min-width:0;
           white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* ⚠️ 页面屏的顶栏里放的是【真按钮 + 状态】,不是一行标题文字 —— 要能 flex。
      ⚠️ 这一屏的顶栏要【压扁】:两行(工具栏 + 页签)本来就比原来多占一截,
         实测不收的话顶部从 120 涨到 221 设备像素,差不多翻倍 —— 那是从浏览器身上抠走的。 */
   .top h1.pagebar{display:flex;align-items:center;overflow:visible;margin:-5px 0}
-  .tbtn{font-size:12.5px;font-weight:700;color:var(--acc);white-space:nowrap;flex:0 0 auto}
+  .tbtn{font-size:13.5px;font-weight:700;color:var(--acc);white-space:nowrap;flex:0 0 auto}
   .tbtn.mute{color:var(--ink3)}
 
   /* 跑条:干跑是黄的,真发是红的 —— 真发是唯一会在别人评论区留下东西的状态,
      不该和测试长一个样。不跑的时候整条不存在(display:none,高度 0)。 */
   .runbar{display:none}
   .runbar.on{display:flex;align-items:center;gap:6px;padding:6px 12px;
-             font-size:11px;line-height:1.5;border-bottom:1px solid var(--warnline)}
+             font-size:12px;line-height:1.5;border-bottom:1px solid var(--warnline)}
   .runbar.gan{background:var(--warnbg);color:#7a6224}
   .runbar.real{background:var(--badbg);color:var(--bad);border-bottom-color:#f0c2c0}
   .runbar b{font-weight:700}
   .runbar .stage{margin-left:auto;background:#fff;border:1px solid var(--warnline);
-                 border-radius:20px;padding:1px 8px;font-size:10px;white-space:nowrap}
+                 border-radius:20px;padding:1px 8px;font-size:11px;white-space:nowrap}
   .runbar.real .stage{border-color:#f0c2c0}
-  .banner{background:var(--warnbg);color:#7a6224;font-size:11.5px;line-height:1.7;
+  .banner{background:var(--warnbg);color:#7a6224;font-size:12.5px;line-height:1.7;
           padding:8px 13px;flex:0 0 auto;display:none}
 
   /* ── 主体 ── */
@@ -97,41 +103,44 @@
         -webkit-overflow-scrolling:touch}
   .tabs.on{display:flex}
   .tab{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;
-       color:var(--ink2);padding:4px 9px 5px 11px;font-size:11.5px}
+       color:var(--ink2);padding:4px 9px 5px 11px;font-size:12.5px}
   .tab.now{background:var(--paper);color:var(--ink);border-radius:0 0 9px 9px;
            padding:5px 9px 6px 11px;position:relative;top:-1px}
-  .tab .x{font-size:13px;line-height:1;opacity:.42;padding:0 2px}
+  .tab .x{font-size:14px;line-height:1;opacity:.42;padding:0 2px}
   .tab.now .x{opacity:.55}
   /* 原来是个 5px 的绿点 —— 用户 2026-10-24:「是绿色的点,不是很理解」。
      换成一个字。它同时回答两件事:这是哪个号在跑 + 为什么这一页没有 ×。 */
-  .tab .run{font-size:9px;color:#fff;background:var(--ok);border-radius:4px;
+  .tab .run{font-size:10px;color:#fff;background:var(--ok);border-radius:4px;
             padding:0 4px;line-height:1.6;flex:0 0 auto;font-weight:700}
-  .tabsn{margin-left:auto;flex:0 0 auto;font-size:10px;color:var(--ink3);padding:0 10px 5px 0}
+  .tabsn{margin-left:auto;flex:0 0 auto;font-size:11px;color:var(--ink3);padding:0 10px 5px 0}
   /* 顶栏左边那两个。⚠️ 以前是按 x 坐标切的【隐形点击区】——
      没样子、没反馈、手指偏一点就没反应。现在是真按钮。 */
   .navbtn{display:inline-flex;align-items:center;justify-content:center;
           width:28px;height:28px;border:1px solid var(--line);border-radius:8px;
-          color:var(--ink2);font-size:15px;flex:0 0 auto;margin-right:8px}
+          color:var(--ink2);font-size:16px;flex:0 0 auto;margin-right:8px}
   .navbtn:active{background:var(--soft)}
   /* 🔴 引擎在这一页上发评论时,‹ ↻ 换成这个。刻意【不是钮】——
      没边框、没按下反馈,一眼就看得出点不了(「假入口比没入口更坏」)。*/
-  .navlock{display:inline-flex;align-items:center;font-size:11px;color:var(--ink3);
+  .navlock{display:inline-flex;align-items:center;font-size:12px;color:var(--ink3);
            flex:0 0 auto;margin-right:8px}
   .nav{display:flex;border-top:1px solid var(--line);flex:0 0 auto;
+       background:var(--card);
        padding-bottom:env(safe-area-inset-bottom)}
   /* ⚠️ 5 个 tab:每格 20%(原来 4 个是 25%)。字号 10 → 9.5px,
      300dp 宽时每格 60px,图标 + 两个字仍放得下(打样 v26 量过)。 */
-  .nav div{flex:1;text-align:center;font-size:9.5px;color:var(--ink3);
+  .nav div{flex:1;text-align:center;font-size:10.5px;color:var(--ink3);
            line-height:1.45;padding:6px 0 8px}
-  .nav div b{display:block;font-size:14px;font-weight:400}
+  .nav div b{display:block;font-size:15px;font-weight:400}
   .nav .on{color:var(--acc)}
 
   /* ── 通用件 ── */
-  .card{border:1px solid var(--line);border-radius:11px;padding:10px 11px;flex:0 0 auto}
-  .kv{display:flex;font-size:12.5px;padding:2px 0}
+  /* ⚠️ `background` 是 2026-11-09 补的 —— 原来没有,白页白卡才会糊成一片。 */
+  .card{border:1px solid var(--line);border-radius:11px;padding:10px 11px;flex:0 0 auto;
+        background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05)}
+  .kv{display:flex;font-size:13.5px;padding:2px 0}
   .kv>span:first-child{color:var(--ink3);width:80px;flex:0 0 auto}
   .kv>span:last-child{flex:1;min-width:0}
-  .log{font:10px/1.75 ui-monospace,monospace;color:var(--ink2);
+  .log{background:var(--card);font:11px/1.75 ui-monospace,monospace;color:var(--ink2);
        background:var(--soft);border-radius:9px;padding:8px 10px;
        white-space:pre-wrap;word-break:break-all;flex:0 0 auto}
   /* 日志里的号名(见 日志块)。⚠️ 不斜体 —— 斜体等宽字常常退化成假斜,糊成一团。
@@ -139,9 +148,9 @@
   /* ⚠️ 用 --ink 不用 --acc:这一块里蓝色一律等于【能点】(跳过/跑着/› 都是),
      日志是只读的,染成蓝的会被当成钮。要的是「比正文深一档」,不是「像链接」。 */
   .log i{font-style:normal;color:var(--ink)}
-  .hint{font-size:11.5px;color:var(--ink3);line-height:1.8}
+  .hint{font-size:12.5px;color:var(--ink3);line-height:1.8}
   .big{width:100%;border:none;border-radius:11px;padding:12px 0;
-       font-size:14px;font-weight:500;background:var(--acc);color:#fff;flex:0 0 auto}
+       font-size:15px;font-weight:500;background:var(--acc);color:#fff;flex:0 0 auto}
   .big.off{background:#d9dde3;color:#fff}
   .big.stop{background:#fff;color:var(--bad);border:1px solid var(--bad)}
   /* —— 跑着时底下那一排:[暂停] [停止](打样 v46 方案 B,用户 2026-11-05 定的)——
@@ -165,13 +174,13 @@
      ⚠️ 刻意【不是钮】—— 删除是这一屏最少用、而且撤不回来的操作,
         原来它是整屏最大最红的东西,主次正好反了(用户 2026-10-25 指出)。
         现在主钮是「保存」,删除降成一行字。 */
-  .delrow{text-align:center;font-size:12px;color:var(--bad);padding:10px 0;flex:0 0 auto}
+  .delrow{text-align:center;font-size:13px;color:var(--bad);padding:10px 0;flex:0 0 auto}
   .ghost{border:1px solid var(--line);background:#fff;border-radius:9px;
-         padding:9px 0;font-size:12.5px;color:var(--ink2);flex:1}
+         padding:9px 0;font-size:13.5px;color:var(--ink2);flex:1}
   .row{display:flex;gap:7px;flex:0 0 auto}
 
   /* 状态 pill */
-  .pill{display:inline-block;font-size:11px;padding:2px 9px;border-radius:11px;
+  .pill{display:inline-block;font-size:12px;padding:2px 9px;border-radius:11px;
         background:var(--soft);color:var(--ink3)}
   .pill.run{background:var(--okbg);color:var(--ok)}
   .pill.warn{background:var(--warnbg);color:var(--warn)}
@@ -194,7 +203,7 @@
      ⚠️ 规矩收成一句:**一个界面一个滚动容器**(页面是 `.body`、抽屉是 `.sheetbody`),
      里面的块一律自然高。唯一的例外是「长度不受我们控制的流」——
      现在只有运行日志(`.log.run` 封 34vh,理由见下面那段,是真机量出来的)。 */
-  .listwrap{flex:0 0 auto;min-height:60px;border:1px solid var(--line);
+  .listwrap{background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);flex:0 0 auto;min-height:60px;border:1px solid var(--line);
             border-radius:11px;position:relative;overflow:hidden}
   .list{padding:0 11px}
   /* ⚠️ 空白【只长不缩】照旧:内容短的时候把「开始」顶到屏幕最底下;
@@ -212,7 +221,7 @@
      ⚠️ 抽屉里那一份【不加 .run】—— 抽屉的滚动容器是 `.sheetbody`,
         里面再封一层高 = 一个界面两个滚动容器(18.13)。自然高就对了。 */
   .daypick{display:flex;gap:6px;flex-wrap:wrap;flex:0 0 auto}
-  .daypick span{font-size:11px;padding:3px 10px;border-radius:20px;
+  .daypick span{font-size:12px;padding:3px 10px;border-radius:20px;
                 background:var(--soft);color:var(--ink3);
                 border:1px solid var(--line)}
   .daypick span.on{background:var(--accbg);color:var(--acc);border-color:#cfe0ff}
@@ -236,18 +245,18 @@
         margin:7px auto 0;flex:0 0 auto}
   .sheethd{display:flex;align-items:center;gap:10px;padding:9px 13px;
            border-bottom:1px solid var(--line);background:#fff;flex:0 0 auto}
-  .sheethd b{flex:1;font-size:14px}
+  .sheethd b{flex:1;font-size:15px}
   .sheetbody{padding:11px;display:flex;flex-direction:column;gap:9px;
              overflow:auto;flex:1;-webkit-overflow-scrolling:touch}
   .item{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--line)}
   .item:last-child{border-bottom:none}
-  .t1{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .tag{font-size:10px;padding:2px 7px;border-radius:20px;display:inline-block;
+  .t1{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tag{font-size:11px;padding:2px 7px;border-radius:20px;display:inline-block;
        background:var(--soft);color:var(--ink3);margin-right:4px}
   .tag.acc{background:var(--accbg);color:var(--acc)}
   .tag.bad{background:var(--badbg);color:var(--bad)}
   .sm{border:1px solid var(--acc);color:var(--acc);background:var(--accbg);
-      border-radius:9px;padding:4px 11px;font-size:11.5px;flex:0 0 auto}
+      border-radius:9px;padding:4px 11px;font-size:12.5px;flex:0 0 auto}
   /* 灰掉的小钮:有毛病的任务、以及【跑着的时候】。一次只跑一个任务,别让人误触重开一轮 */
   .sm.off{border-color:var(--line);color:var(--ink3);background:var(--soft)}
   /* —— 任务行右边那一格的【状态】(打样 v47 方案 B,用户 2026-11-05 定的)——
@@ -262,7 +271,7 @@
         (钮只有蓝和红),撞不上「可点」的联想。
      ⚠️ 小圆点替「正在进行」说话。**别给它加动画** —— 列表里一个会动的点是噪音,
         而且快照每 250 毫秒重绘一次,动画每次都会被打断重来。 */
-  .st{font-size:10.5px;color:var(--ok);flex:0 0 auto;white-space:nowrap}
+  .st{font-size:11.5px;color:var(--ok);flex:0 0 auto;white-space:nowrap}
   .st.wait{color:var(--ink3)}
   .st .dot{display:inline-block;width:5px;height:5px;border-radius:50%;
            background:var(--ok);margin-right:4px;vertical-align:1px}
@@ -271,23 +280,24 @@
      render 和 CSS 同时没,grep 两边都搜不着。
      (页面屏那排页签的 `.tab.now` 是另一条规则,别混。) */
   .fold{border:1px solid var(--line);border-radius:10px;padding:9px 11px;
-        display:flex;align-items:center;gap:8px;font-size:12.5px;flex:0 0 auto}
+        background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);
+        display:flex;align-items:center;gap:8px;font-size:13.5px;flex:0 0 auto}
   .fold .k{color:var(--ink3);width:52px;flex:0 0 auto}   /* 两个折叠对齐,都 52px */
   .ck2{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);
        flex:0 0 auto;display:flex;align-items:center;justify-content:center;
-       font-size:10px;color:#fff}
+       font-size:11px;color:#fff}
   .ck2.on{background:var(--acc);border-color:var(--acc)}
   .tbtn.pick{color:var(--ink3)}
   .tbtn.pick.on{color:var(--acc);background:var(--accbg);border-radius:20px;padding:2px 9px;margin:-2px -3px}
 
   /* ── 屏③ 编辑器(照 v22)── */
   .fr{display:flex;align-items:center;gap:8px;flex:0 0 auto;flex-wrap:wrap}
-  .lb{font-size:12.5px;color:var(--ink2);flex:0 0 auto}
+  .lb{font-size:13.5px;color:var(--ink2);flex:0 0 auto}
   .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:0 0 auto}
-  .seg div{padding:5px 15px;font-size:12px;color:var(--ink2)}
+  .seg div{padding:5px 15px;font-size:13px;color:var(--ink2)}
   .seg div.on{background:var(--acc);color:#fff}
   .inp{border:1px solid var(--line);border-radius:8px;padding:7px 9px;
-       font-size:12.5px;color:var(--ink);background:#fff;min-width:0;font-family:inherit}
+       font-size:13.5px;color:var(--ink);background:#fff;min-width:0;font-family:inherit}
   .inp:focus{outline:none;border-color:var(--acc)}
   /* ── 「目标页面」的剧集直通链(mockup v30 方案 D1)──
      交互:一个控件走到底。清单最后一项是「✎ 自己填…」,挑它就变输入框。
@@ -299,8 +309,8 @@
   .wrap input.inp{width:100%;padding-right:73px}
   .trig{width:100%;text-align:left;background:#fff;border:1px solid var(--line);
         border-radius:10px;padding:7px 28px 7px 11px;font-family:inherit;position:relative}
-  .trig .nm{font-size:12.5px;color:var(--ink);display:block}
-  .trig .u{font-size:10.5px;color:var(--ink3);display:block}
+  .trig .nm{font-size:13.5px;color:var(--ink);display:block}
+  .trig .u{font-size:11.5px;color:var(--ink3);display:block}
   .trig::after{content:'';position:absolute;right:11px;top:50%;width:6px;height:6px;
       border-right:1.5px solid var(--ink3);border-bottom:1.5px solid var(--ink3);
       transform:translateY(-70%) rotate(45deg)}
@@ -310,13 +320,13 @@
   .pop .it{padding:8px 10px;border-radius:9px}
   /* 当前选中那条染蓝 —— 打开就知道现在是哪个 */
   .pop .it.on{background:var(--accbg)}
-  .pop .nm{font-size:12.5px;color:var(--ink);display:block}
-  .pop .u{font-size:10.5px;color:var(--ink3);display:block}
+  .pop .nm{font-size:13.5px;color:var(--ink);display:block}
+  .pop .u{font-size:11.5px;color:var(--ink3);display:block}
   .pop .sep{height:1px;background:var(--line);margin:5px 9px}
-  .pop .self{padding:8px 10px;border-radius:9px;font-size:12px;color:var(--acc)}
+  .pop .self{padding:8px 10px;border-radius:9px;font-size:13px;color:var(--acc)}
   .back{position:absolute;right:4px;top:50%;transform:translateY(-50%);
         border:0;background:var(--accbg);color:var(--acc);border-radius:7px;
-        padding:4px 8px;font-size:10.5px;line-height:1;font-family:inherit}
+        padding:4px 8px;font-size:11.5px;line-height:1;font-family:inherit}
   .num{width:62px;text-align:center}
   .grow{flex:1}
   .ta{width:100%;min-height:96px;resize:vertical;line-height:1.7}
@@ -325,7 +335,7 @@
   /* ⚠️ 冷却关掉时【置灰】不是 hidden —— 不跳版,而且看得见自己关了什么(UI决策.md §3) */
   .blk.off{opacity:.45;pointer-events:none}
   .bt{position:absolute;top:-8px;left:10px;background:#fff;padding:0 6px;
-      font-size:10px;color:var(--ink3)}
+      font-size:11px;color:var(--ink3)}
   .bt.warm{color:var(--warn)}
 
   /* ── 账号行(照 v21 量过的尺寸,别改)── */
@@ -359,12 +369,12 @@
      居中会让它们掉进两行中间的缝里,而且两个模式掉的位置还不一样)。 */
   .slot{width:20px;flex:0 0 auto;display:flex;align-self:stretch;
         align-items:flex-start;justify-content:center}
-  .slot.tri{line-height:20px;font-size:12.5px}
+  .slot.tri{line-height:20px;font-size:13.5px}
   .ck{width:20px;height:20px;border-radius:6px;border:1.5px solid #cfd4db;
-      display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff}
+      display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff}
   .ck.on{background:var(--acc);border-color:var(--acc)}
   .meta{flex:1;min-width:0}
-  .name{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .name{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* ⚠️ 账号行专用。普通 .name 是「整行一起截」—— 那样截掉的是【尾巴上的徽章】,
      而徽章正是诊断本身(「信息库破损,须重启」比名字要紧得多)。
      2026-10-29 实测:名字长 + 任务运行中 + 长徽章 = 徽章被切掉 40px。
@@ -382,7 +392,7 @@
      不封顶的话一个烂 URL 能把这一行撑成五行、整个列表走形。超了照样打省略号。
      ⚠️ overflow-wrap:anywhere 是给 ASCII 原因(net::ERR_… 这种没空格的)用的,
      中文本来就能随处断。 */
-  .rowinfo{font-size:9.5px;color:var(--ink3);margin-top:1px;line-height:1.45;
+  .rowinfo{font-size:10.5px;color:var(--ink3);margin-top:1px;line-height:1.45;
            display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
            overflow:hidden;overflow-wrap:anywhere}
   /* ── 设置屏:一行入口(打样 v48 方案 C)──
@@ -390,9 +400,9 @@
         不是来读一句介绍的。空着也行(维护那一行就没有)。 */
   .entry{display:flex;align-items:center;gap:8px;border:1px solid var(--line);
          border-radius:11px;padding:11px;flex:0 0 auto}
-  .et{font-size:13px;flex:1;min-width:0}
-  .ev{font-size:11.5px;color:var(--ink3);white-space:nowrap}
-  .ea{font-size:13px;color:var(--ink3)}
+  .et{font-size:14px;flex:1;min-width:0}
+  .ev{font-size:12.5px;color:var(--ink3);white-space:nowrap}
+  .ea{font-size:14px;color:var(--ink3)}
 
   /* ── 版本信息页 ──
      🔴 抄的是小菇爱表白那一页的约定,理由它自己写着:这一页上
@@ -403,20 +413,20 @@
      ⚠️ 紫色是这个 App 里【唯一】不表示「能点」的强调色。蓝 = 能点这条规矩
         在日志那边记过(18.14),版本号用蓝是因为它本来就在卡里、周围没有钮;
         时间要是也用蓝,一行里两种蓝就又分不清了。 */
-  .vhd{font-weight:600;color:var(--ink);font-size:12.5px}
-  .vline{font-size:12.5px;line-height:1.95}
-  .vsm{font-size:11.5px}
+  .vhd{font-weight:600;color:var(--ink);font-size:13.5px}
+  .vline{font-size:13.5px;line-height:1.95}
+  .vsm{font-size:12.5px}
   .vn{font-weight:700;color:var(--acc)}
   .vt{color:var(--time)}
   .vg{color:var(--ink3)}
   .vok{color:var(--ok)}
   .vbad{color:var(--bad)}
 
-  .badge{font-size:9px;padding:1px 6px;border-radius:10px;background:var(--accbg);color:var(--acc)}
+  .badge{font-size:10px;padding:1px 6px;border-radius:10px;background:var(--accbg);color:var(--acc)}
   .badge.dead{background:var(--badbg);color:var(--bad)}
   .badge.norot{background:var(--soft);color:var(--ink3)}
   .ops button{border:1px solid var(--line);background:#fff;border-radius:7px;
-              padding:3px 8px;font-size:10.5px;color:var(--ink2)}
+              padding:3px 8px;font-size:11.5px;color:var(--ink2)}
   .ops button.hot{border-color:var(--acc);color:var(--acc);background:var(--accbg)}
   /* —— 换顺序:▲▼(照插件 content.js moveProfile)——————————
      🔴 2026-11-05 这里【原来是 ⠿ 拖动】。v20 当初选它是为了「两个热区离得远」:
@@ -431,7 +441,7 @@
         真拿掉的话右边那一格会忽宽忽窄,整列对不齐。 */
   .reord{display:flex;gap:8px;flex:0 0 auto}
   .reord button{width:42px;height:36px;border:1px solid var(--line);background:#fff;
-                border-radius:8px;font-size:11px;color:var(--ink2);line-height:1;
+                border-radius:8px;font-size:12px;color:var(--ink2);line-height:1;
                 display:flex;align-items:center;justify-content:center}
   .reord button:disabled{opacity:.3}
 
@@ -442,7 +452,7 @@
   .bar{flex:1;background:var(--acc);border-radius:2px 2px 0 0;min-height:2px}
   .bar.zero{background:#d9dde3}
   .goal{position:absolute;left:0;right:0;border-top:1px dashed #b6bcc5}
-  .barx{display:flex;gap:5px;font-size:8.5px;color:var(--ink3)}
+  .barx{display:flex;gap:5px;font-size:9.5px;color:var(--ink3)}
   .barx span{flex:1;text-align:center}
 </style>
 </head>
@@ -622,7 +632,7 @@ function 画运行区() {
        + esc(s.当前任务名 || '') + '  <b>' + s.本段已发 + '</b>'
        + (s.本段目标 ? '/' + s.本段目标 : '') + '</span>'
        // 换号是「这个号不行了,下一个」的手动出口。⚠️ 不标掉线,只是跳过这一趟
-       + '<span class="sm" data-意图="跳过当前号" style="font-size:10.5px;padding:3px 9px">跳过</span>'
+       + '<span class="sm" data-意图="跳过当前号" style="font-size:11.5px;padding:3px 9px">跳过</span>'
        + '</span></div>';
   } else if (s.上一段成绩) {
     // 换段那一刻 本段已发 被清零,界面会从「24/25」跳「0/25」看著像坏了。
@@ -923,7 +933,7 @@ function 画页面屏(题, 右1, 右2, 内容) {
           ? '<span class="navlock">🔒 引擎在这页上发</span>'
           : '<span class="navbtn" data-页后退="1">‹</span>'
             + '<span class="navbtn" data-页刷新="1">↻</span>')
-      + '<span style="margin-left:auto;font-size:11px;color:var(--' + 状[0] + ')">'
+      + '<span style="margin-left:auto;font-size:12px;color:var(--' + 状[0] + ')">'
       + esc(状[1]) + '</span>';
   if (待定) {
     // 登到一半不想登了 —— 得给个出口,否则那个空仓会一直挂着
@@ -1088,7 +1098,7 @@ function 画任务库() {
   // ⚠️ 必须排在 `在跑() return` 【之前】—— 跑着时这一句 return 就把下面的
   //    空白和「开始」都挡掉了,放在它后面跑着就看不见。
   h += '<div class="card" data-意图="去账号" style="display:flex;align-items:center;gap:8px">'
-     + '<span style="font-size:12.5px;color:var(--ink3);flex:0 0 auto">参与轮换</span>'
+     + '<span style="font-size:13.5px;color:var(--ink3);flex:0 0 auto">参与轮换</span>'
      + (快照.从谁起
         ? '<span class="name" style="flex:1;min-width:0">从 ' + esc(快照.从谁起) + ' 起</span>'
           + '<span class="pill' + (快照.参与里掉线几个 ? ' bad' : '') + '" style="flex:0 0 auto">'
