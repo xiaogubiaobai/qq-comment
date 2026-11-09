@@ -1,6 +1,6 @@
 {
   "版本": 4,
-  "说明": "返回键那个旗子:报成了才记账 —— 报不成就不记,下一拍重试(不然返回键会偶尔退掉整个 App)",
+  "说明": "",
   "最低APK版本": 0,
   "文件": {
     "rotation.js": {
@@ -19,5 +19,13 @@
       "sha256": "0c378aa91bda09f295cef408ac08d27afe3626208d952ef987e79000a83ac19d",
       "大小": 193354
     }
+  },
+  "APK": {
+    "版本号": 5,
+    "版本名": "1.4",
+    "sha256": "36b6c95b281028b41bd768f276bbfefec2eb6f8043e93f23d776949cc4ffc81a",
+    "大小": 3504105,
+    "地址": "https://gitee.com/flyten1129/qq-comment/releases/download/apk/qq-comment.apk",
+    "备用地址": "https://github.com/xiaogubiaobai/qq-comment/releases/download/v1.4/qq-comment.apk"
   }
 }
