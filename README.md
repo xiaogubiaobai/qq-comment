@@ -10,7 +10,7 @@
 
 ## 下载
 
-**当前版本 1.2** · `qq-comment.apk`(3.33 MB)· 需要 **Android 11 或更新**
+**当前版本 1.3** · `qq-comment.apk`(3.33 MB)· 需要 **Android 11 或更新**
 
 | 从哪下 | 地址 |
 |---|---|
@@ -28,10 +28,10 @@
 
 ## 怎么确认下载的没被动过
 
-1.2 的 sha256:
+1.3 的 sha256:
 
 ```
-1d2553b69d8a02164dd6f33695938552ed7137fcd0afae78e338a4abcc8ca25f
+3d590d9f4e431c2dac532a47a43c5cdb4399cd2d4bfe65a9364f7082eb9106c9
 ```
 
 Windows:
