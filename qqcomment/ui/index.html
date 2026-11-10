@@ -39,19 +39,19 @@
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   html,body{height:100%}
   body{background:var(--paper);color:var(--ink);
-       font:15px/1.6 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+       font:14.5px/1.65 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
        display:flex;flex-direction:column;overscroll-behavior:none}
 
   /* ── 顶栏 ── */
   .top{display:flex;align-items:center;gap:10px;padding:10px 13px;
        border-bottom:1px solid var(--line);flex:0 0 auto;background:var(--card)}
-  .top h1{font-size:16.5px;font-weight:500;flex:1;min-width:0;
+  .top h1{font-size:18px;font-weight:500;flex:1;min-width:0;
           white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* ⚠️ 页面屏的顶栏里放的是【真按钮 + 状态】,不是一行标题文字 —— 要能 flex。
      ⚠️ 这一屏的顶栏要【压扁】:两行(工具栏 + 页签)本来就比原来多占一截,
         实测不收的话顶部从 120 涨到 221 设备像素,差不多翻倍 —— 那是从浏览器身上抠走的。 */
   .top h1.pagebar{display:flex;align-items:center;overflow:visible;margin:-5px 0}
-  .tbtn{font-size:13.5px;font-weight:700;color:var(--acc);white-space:nowrap;flex:0 0 auto}
+  .tbtn{font-size:15px;font-weight:700;color:var(--acc);white-space:nowrap;flex:0 0 auto}
   .tbtn.mute{color:var(--ink3)}
 
   /* 跑条:干跑是黄的,真发是红的 —— 真发是唯一会在别人评论区留下东西的状态,
@@ -128,16 +128,16 @@
        padding-bottom:env(safe-area-inset-bottom)}
   /* ⚠️ 5 个 tab:每格 20%(原来 4 个是 25%)。字号 10 → 9.5px,
      300dp 宽时每格 60px,图标 + 两个字仍放得下(打样 v26 量过)。 */
-  .nav div{flex:1;text-align:center;font-size:10.5px;color:var(--ink3);
-           line-height:1.45;padding:6px 0 8px}
-  .nav div b{display:block;font-size:15px;font-weight:400}
+  .nav div{flex:1;text-align:center;font-size:11.5px;color:var(--ink3);
+           line-height:1.45;padding:7px 0 9px}
+  .nav div b{display:block;font-size:22px;font-weight:400}
   .nav .on{color:var(--acc)}
 
   /* ── 通用件 ── */
   /* ⚠️ `background` 是 2026-11-09 补的 —— 原来没有,白页白卡才会糊成一片。 */
   .card{border:1px solid var(--line);border-radius:11px;padding:10px 11px;flex:0 0 auto;
         background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05)}
-  .kv{display:flex;font-size:13.5px;padding:2px 0}
+  .kv{display:flex;font-size:14.5px;padding:2px 0}
   .kv>span:first-child{color:var(--ink3);width:80px;flex:0 0 auto}
   .kv>span:last-child{flex:1;min-width:0}
   .log{background:var(--card);font:11px/1.75 ui-monospace,monospace;color:var(--ink2);
@@ -149,8 +149,8 @@
      日志是只读的,染成蓝的会被当成钮。要的是「比正文深一档」,不是「像链接」。 */
   .log i{font-style:normal;color:var(--ink)}
   .hint{font-size:12.5px;color:var(--ink3);line-height:1.8}
-  .big{width:100%;border:none;border-radius:11px;padding:12px 0;
-       font-size:15px;font-weight:500;background:var(--acc);color:#fff;flex:0 0 auto}
+  .big{width:100%;border:none;border-radius:11px;padding:14px 0;
+       font-size:18px;font-weight:500;background:var(--acc);color:#fff;flex:0 0 auto}
   .big.off{background:#d9dde3;color:#fff}
   .big.stop{background:#fff;color:var(--bad);border:1px solid var(--bad)}
   /* —— 跑着时底下那一排:[暂停] [停止](打样 v46 方案 B,用户 2026-11-05 定的)——
@@ -176,11 +176,11 @@
         现在主钮是「保存」,删除降成一行字。 */
   .delrow{text-align:center;font-size:13px;color:var(--bad);padding:10px 0;flex:0 0 auto}
   .ghost{border:1px solid var(--line);background:#fff;border-radius:9px;
-         padding:9px 0;font-size:13.5px;color:var(--ink2);flex:1}
+         padding:12px 0;font-size:16px;color:var(--ink2);flex:1}
   .row{display:flex;gap:7px;flex:0 0 auto}
 
   /* 状态 pill */
-  .pill{display:inline-block;font-size:12px;padding:2px 9px;border-radius:11px;
+  .pill{display:inline-block;font-size:12.5px;padding:2px 9px;border-radius:11px;
         background:var(--soft);color:var(--ink3)}
   .pill.run{background:var(--okbg);color:var(--ok)}
   .pill.warn{background:var(--warnbg);color:var(--warn)}
@@ -250,8 +250,8 @@
              overflow:auto;flex:1;-webkit-overflow-scrolling:touch}
   .item{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--line)}
   .item:last-child{border-bottom:none}
-  .t1{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .tag{font-size:11px;padding:2px 7px;border-radius:20px;display:inline-block;
+  .t1{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tag{font-size:11.5px;padding:2px 7px;border-radius:20px;display:inline-block;
        background:var(--soft);color:var(--ink3);margin-right:4px}
   .tag.acc{background:var(--accbg);color:var(--acc)}
   .tag.bad{background:var(--badbg);color:var(--bad)}
@@ -271,7 +271,7 @@
         (钮只有蓝和红),撞不上「可点」的联想。
      ⚠️ 小圆点替「正在进行」说话。**别给它加动画** —— 列表里一个会动的点是噪音,
         而且快照每 250 毫秒重绘一次,动画每次都会被打断重来。 */
-  .st{font-size:11.5px;color:var(--ok);flex:0 0 auto;white-space:nowrap}
+  .st{font-size:12px;color:var(--ok);flex:0 0 auto;white-space:nowrap}
   .st.wait{color:var(--ink3)}
   .st .dot{display:inline-block;width:5px;height:5px;border-radius:50%;
            background:var(--ok);margin-right:4px;vertical-align:1px}
@@ -282,6 +282,22 @@
   .fold{border:1px solid var(--line);border-radius:10px;padding:9px 11px;
         background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);
         display:flex;align-items:center;gap:8px;font-size:13.5px;flex:0 0 auto}
+
+  /* 🔴 参数展开:这一行和下面那三块【连成一张卡】(打样 v52 方案 D)。
+     为什么要连:不连的话屏幕上是四个互不相干的盒子,看不出是从哪一行展开的
+     —— 用户 2026-11-10 的原话是「不太明白怎么缩起来」。
+     ⚠️ `margin-top:-8px` 是在抵消 `.body` 的 `gap:8px`。改 gap 的时候记得这儿。
+     ⚠️ 只作用在 `.foldbody` 的直接子块上 —— 不能用 `~`,
+        后面还跟着「参与轮换」那张 `.card`,会被误伤。 */
+  .fold.on{border-bottom-left-radius:0;border-bottom-right-radius:0;
+           border-bottom:none;box-shadow:none;background:var(--soft)}
+  .fold.on .k{font-weight:600;color:var(--ink)}
+  .foldbody{margin-top:-8px;display:flex;flex-direction:column;flex:0 0 auto}
+  .foldbody>.blk{border-radius:0;border-top:none;box-shadow:none;margin:0}
+  .foldbody>.blk+.blk{border-top:1px solid var(--line)}
+  .foldbody>.blk:last-child{border-bottom-left-radius:11px;
+                            border-bottom-right-radius:11px;
+                            box-shadow:0 1px 2px rgba(16,24,40,.05)}
   .fold .k{color:var(--ink3);width:52px;flex:0 0 auto}   /* 两个折叠对齐,都 52px */
   .ck2{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);
        flex:0 0 auto;display:flex;align-items:center;justify-content:center;
@@ -383,7 +399,7 @@
      2026-10-29 实测:名字长 + 任务运行中 + 长徽章 = 徽章被切掉 40px。
      改成 flex 之后截的是名字,徽章永远完整 —— 名字猜得出来,徽章猜不出来。 */
   .name.pn{display:flex;align-items:center;gap:4px}
-  .name.pn>.nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .name.pn>.nm{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   .name.pn>.badge{flex:0 0 auto}
   /* ⚠️⚠️ 2026-10-29 用户:「每个帐号都应该显示状态,即使『任务失败』也应该要显示」。
      原来是 nowrap + ellipsis 单行,而 ellipsis 从尾巴切 —— 切掉的正好是
@@ -395,7 +411,7 @@
      不封顶的话一个烂 URL 能把这一行撑成五行、整个列表走形。超了照样打省略号。
      ⚠️ overflow-wrap:anywhere 是给 ASCII 原因(net::ERR_… 这种没空格的)用的,
      中文本来就能随处断。 */
-  .rowinfo{font-size:10.5px;color:var(--ink3);margin-top:1px;line-height:1.45;
+  .rowinfo{font-size:12px;color:var(--ink3);margin-top:1px;line-height:1.45;
            display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
            overflow:hidden;overflow-wrap:anywhere}
   /* ── 设置屏:一行入口(打样 v48 方案 C)──
@@ -425,11 +441,11 @@
   .vok{color:var(--ok)}
   .vbad{color:var(--bad)}
 
-  .badge{font-size:10px;padding:1px 6px;border-radius:10px;background:var(--accbg);color:var(--acc)}
+  .badge{font-size:11px;padding:1px 6px;border-radius:10px;background:var(--accbg);color:var(--acc)}
   .badge.dead{background:var(--badbg);color:var(--bad)}
   .badge.norot{background:var(--soft);color:var(--ink3)}
   .ops button{border:1px solid var(--line);background:#fff;border-radius:7px;
-              padding:3px 8px;font-size:11.5px;color:var(--ink2)}
+              padding:6px 11px;font-size:13px;color:var(--ink2)}
   .ops button.hot{border-color:var(--acc);color:var(--acc);background:var(--accbg)}
   /* —— 换顺序:▲▼(照插件 content.js moveProfile)——————————
      🔴 2026-11-05 这里【原来是 ⠿ 拖动】。v20 当初选它是为了「两个热区离得远」:
@@ -485,10 +501,18 @@
 <!-- ⚠️ 2026-10-27:「运行」没了,并进「任务」(打样 v32/v38)。
      理由:运行屏的「开始」跑的是勾选,而勾选只在任务屏看得到 ——
      在一个看不见后果的地方按开始。两屏又从不同时有用,合成一页按状态换内容。 -->
+<!-- 🔴 2026-11-10 顺序改成「账号 → 页面 → 任务 → 设置」(用户指定)。
+     原来是「任务 → 账号 → 页面 → 设置」。读起来是一条流水:
+     先把号准备好 -> 看看页面 -> 再去跑任务 -> 设置垫底。
+  ⚠️ `class="on"` 写在「账号」那一格上,但那只是**首帧**的样子 ——
+     开机会 `换底栏(当前页)` 把它对齐到【上次停留的那一屏】(见 `读上次的屏`)。
+     「账号」只是**第一次打开**(没存过记忆)时的落点。
+  ⚠️ 顺序和默认屏是两件事,分开改的,别以为动一个另一个会跟着动。
+  ⚠️ 每格认的是 `data-页`,不是位置,所以**派发那边一个字都不用改**。 -->
 <div class="nav" id="底栏">
-  <div class="on" data-页="任务"><b>☰</b>任务</div>
-  <div data-页="账号"><b>◍</b>账号</div>
+  <div class="on" data-页="账号"><b>◍</b>账号</div>
   <div data-页="页面"><b>◫</b>页面</div>
+  <div data-页="任务"><b>☰</b>任务</div>
   <div data-页="设置"><b>⚙</b>设置</div>
 </div>
 
@@ -496,7 +520,49 @@
 'use strict';
 
 var 快照 = null;
-var 当前页 = '任务';   // ⚠️ 运行屏并进来了,开机就落这儿
+/**
+ * 🔴 开机落哪一屏(用户 2026-11-10 定的):
+ *   · **第一次打开**(没存过)-> 「账号」
+ *   · 其他时候 -> **上次停留的那一屏**
+ *
+ * 存在面板自己的 `localStorage` 里 —— 它是「这个人上次看到哪儿」,
+ * **不是业务事实**,所以不进状态机也不进快照(和 `设置页` / `弹层开的是`
+ * 同一类,见 18.7)。原生一行都不用动 = 纯层 2。
+ *
+ * ⚠️ **读回来必须过白名单。** 那个字符串躺在用户设备上,可能是旧版本留下的屏名
+ *    (比如早就并掉的「运行」屏)。认不出就当没存过、落回账号 ——
+ *    否则一个过期字符串能把面板钉在一个画不出来的屏上,而且**重装才好**。
+ * ⚠️ **整段 try 包住**:存储被禁 / 配额满 / 隐私模式,`localStorage` 都会抛。
+ *    抛了就退化成「每次都落账号」,和没这个功能一样,不会崩。
+ *    (`主界面` 那边 `setDomStorageEnabled(true)` 是开着的,查过。)
+ *
+ * 🔴🔴 **它活不活得过重启,取决于【怎么死的】** —— 2026-11-10 在模拟器上
+ *    (真 `https://panel.local` 源)逐条试出来的,别凭直觉改:
+ *
+ *    | 怎么退出 | 记忆还在吗 |
+ *    |---|---|
+ *    | 返回键退到桌面(用户日常走的那条) | ✅ **在**。Activity `onDestroy` 里
+ *      `面板.destroy()` 会把 DOM storage 刷下去 |
+ *    | `am force-stop` / 设置屏那个「重启 App」(`killProcess`) | ❌ **没了** |
+ *
+ *    后者是**硬杀**,异步的 DOM storage 写还没落盘就没了 ——
+ *    和铁律 20 那个「force-stop 打断 cookie 写盘」是同一个物理。
+ *    ⚠️ **认了,不治。** 丢了的后果只是「这次落回账号」,
+ *    也就是退回这个功能存在之前的样子;而要治得在 `重启App` 那条路上
+ *    先把面板 destroy 掉再杀进程 = 层 1 + 一条新的时序依赖,
+ *    为一个「下次开在哪一屏」不值得。
+ */
+var 认得的屏 = ['任务', '账号', '页面', '设置'];
+var 屏记忆键 = 'qqc.当前页';
+
+function 读上次的屏() {
+  try {
+    var v = localStorage.getItem(屏记忆键);
+    return 认得的屏.indexOf(v) >= 0 ? v : null;
+  } catch (e) { return null; }
+}
+
+var 当前页 = 读上次的屏() || '账号';
 var 编辑轮换 = false;      // 屏④ 的两态(UI决策.md §2)
 /* ⭐ 进「编辑轮换」那一刻的底片 = [{id, 参与}]，**只给「取消」用**。
    ⚠️ 为什么要底片:这个模式下每一下都【立即落盘】(勾、▲▼ 都是,照插件 moveProfile),
@@ -1076,10 +1142,31 @@ function 画任务库() {
   }
 
   var p = 快照.参数 || {};
-  h += '<div class="fold" data-意图="切参数"><span class="k">参数</span>'
-     + '<span style="flex:1;min-width:0" class="name">' + esc(参数摘要(p)) + '</span>'
-     + '<span style="color:var(--ink3)">' + (参数开 ? '▾' : '▸') + '</span></div>';
-  if (参数开) h += 画参数(p);
+  // 🔴🔴 **展开时这一行和下面那三块是【一张卡】**(打样 v52 方案 D,2026-11-10)。
+  //
+  //    用户:「任务的参数那行点开时,看起来不像同一个区展开,
+  //            所以不太明白怎么缩起来」。去量了一下 —— **不是他看错**:
+  //    展开态是 `fold 行` + **三个各自带边框的 `.blk`**,而 `.body` 还有
+  //    `gap:8px`,屏幕上就是**四个互不相干的盒子**,没有任何东西把它们连起来。
+  //
+  //    他那句其实提了两件事,分开治:
+  //      ① 不像同一个区 -> `.fold.on` 去掉下圆角/下边线,三块包进 `.foldbody`
+  //         贴上去、彼此只留一条细线,最后一块补回下圆角 = 标准手风琴。
+  //      ② 不明白怎么缩起来 -> **把话说出来**:展开时行上垫 `--soft` 底
+  //         (一看就是标题条),右边那个小小的 `▾` 换成**「收起 ▴」**。
+  //
+  // ⚠️ 展开时**摘要让位**给「收起」—— 内容都摊在下面了,那一刻摘要是多余的。
+  // ⚠️ `.on` 是这个仓里既有的「激活态」后缀(`.ck.on` / `.runbar.on`),没新造词;
+  //    「收起」复用 `.tbtn`(顶栏那两个钮的样子),也没新造。
+  // ⚠️ 连起来之后**反而矮了 26px**(四条缝没了)——打样里量的 678 -> 652。
+  h += '<div class="fold' + (参数开 ? ' on' : '') + '" data-意图="切参数">'
+     + '<span class="k">参数</span>'
+     + '<span style="flex:1;min-width:0" class="name">'
+       + (参数开 ? '' : esc(参数摘要(p))) + '</span>'
+     + (参数开 ? '<span class="tbtn">收起 ▴</span>'
+               : '<span style="color:var(--ink3)">▸</span>')
+     + '</div>';
+  if (参数开) h += '<div class="foldbody">' + 画参数(p) + '</div>';
 
   // ⚠️ 这里原来还有一行「参与轮换」摘要(只读 + 跳转)。2026-10-24 删掉 ——
   //    用户:「参与轮换的选项太多余,因为隔壁的帐号列表就能直接编辑」。成立:
@@ -2838,6 +2925,13 @@ window.退一层 = function () {
 };
 
 function 换底栏(页) {
+  // 🔴 顺手把「停在哪一屏」记下来。**挂在这儿,是因为它是唯一的漏斗** ——
+  //    切屏有两条路(`切到` 和派发里的 `去账号`),两条都要经过 换底栏。
+  //    散着写迟早漏一条,而漏掉的症状是「有时候记得有时候不记得」,最难查。
+  // ⚠️ 引擎自己发的 `切到屏`(收编完回账号、开跑跳任务)也走 `切到` ->
+  //    也会被记下来。**这是对的**:用户原话是「按照最后一次停留的地方」,
+  //    引擎把他送到哪儿,那儿就是他最后停留的地方。
+  try { localStorage.setItem(屏记忆键, 页); } catch (e) {}
   [].forEach.call(document.getElementById('底栏').children, function (c) {
     c.classList.toggle('on', c.dataset.页 === 页);
   });
@@ -2975,6 +3069,11 @@ if (window.visualViewport) {
   visualViewport.addEventListener('resize', 盯键盘);
   visualViewport.addEventListener('scroll', 盯键盘);
 }
+
+// ⚠️ 底栏那个 `class="on"` 是写死在 HTML 里的首帧高亮(挂在「账号」那一格)。
+//    开机要是从记忆里读到了别的屏,得把高亮对齐过去,否则会出现
+//    「内容是任务屏、底下亮的是账号」这种一看就坏掉的样子。
+换底栏(当前页);
 
 // 告诉原生:我准备好了,可以推第一份快照
 if (window.安卓 && 安卓.面板就绪) 安卓.面板就绪();
