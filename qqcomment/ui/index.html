@@ -1588,8 +1588,11 @@ function 画开始之前() {
   //    状态并进那一行本身:「悬浮窗 还没开 … 去开 ›」。
   var h = '<div class="暖通栏">';
   h += '<div class="fr ckrow" data-去悬浮窗>'
+     // ⚠️ 开头那个 ⚠️ 是用户 2026-11-10 要的:「还可以像之前一样在前头加个⚠️符号」。
+     //    和别屏那条黄条(`刷横幅()` 里那句)对齐 —— 两处都以 ⚠️ 起头,
+     //    扫一眼就知道是同一件事在喊。
      + '<span class="lb" style="font-size:15px;color:#6b5418">'
-     + '<b>悬浮窗</b> 还没开</span>'
+     + '⚠️ <b>悬浮窗</b> 还没开</span>'
      + '<span style="flex:1"></span>'
      + '<span class="hint" style="color:#8a7340">去开 ›</span></div>';
   h += '<div class="hint">没有它,页面退到后台 <b>67 秒</b>就会停摆,挂机跑不了。</div>';
