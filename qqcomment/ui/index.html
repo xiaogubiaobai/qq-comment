@@ -346,6 +346,21 @@
   .num{width:62px;text-align:center}
   .grow{flex:1}
   .ta{width:100%;min-height:96px;resize:vertical;line-height:1.7}
+  /* ⭐ 试连那份【全文】:可滚、可选中、可复制。封高 34vh,理由和 .log.run 一样 ——
+        不封的话 5000 行会把下面的「保存」顶出屏幕。 */
+  /* ⚠️ textarea 的高度【不跟内容走】,所以 max-height 单给是没用的(量过:
+        只给 min/max 它就停在 min-height,120px 一次只看得到 5 行)。
+        要给一个真的 height。26vh 是折中:够看一屏,又不把「保存」顶太远。 */
+  /* ⚠️ 两个坑一起踩过(2026-11-10 在 预览.py 上量的):
+        ① textarea 的高度【不跟内容走】,只给 min/max 它就停在 min-height
+           —— 120px 一次只看得到 5 行。要给一个真的 height。
+        ② 抽屉是 flex 列,这个框会被挤回 min-height,所以要 `flex:0 0 auto`。 */
+  .ta.pv{flex:0 0 auto;height:200px;max-height:34vh;resize:vertical;
+         font:12px/1.7 ui-monospace,monospace;color:var(--ink2);background:var(--bg)}
+  /* 🔴 勾选那一整行都是热区(2026-11-10)。原来只有那个 16x16 的 .ck2 带
+        `data-勾字段`,点在字上 `closest()` 往上找不到 = 什么都不会发生,
+        用户报「启用冷却好像不可选」就是这个。min-height 44 是拇指的下限。 */
+  .ckrow{min-height:44px;cursor:pointer;-webkit-tap-highlight-color:transparent}
   .blk{background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);border:1px solid var(--line);border-radius:10px;padding:10px 11px;
        display:flex;flex-direction:column;gap:8px;flex:0 0 auto;position:relative}
   /* ⚠️ 冷却关掉时【置灰】不是 hidden —— 不跳版,而且看得见自己关了什么(UI决策.md §3) */
@@ -846,7 +861,10 @@ function 简网址(u) {
  *    而那正是会被 `重绘()` 开头的 `收草稿()` 盖掉的写法(铁律 18.6)。
  */
 function 挑一个(c) {
-  var 值 = (草稿 && 草稿[c.字段]) || '';
+  // ⚠️ `显示值` 只影响【显示和配对】,不影响存下去那个字段。
+  //    「自己输入」时 remoteDrama 本来就该是空的,但触发器上不能写「还没选」——
+  //    其实已经选了,只是选的不是一个池。
+  var 值 = (c.显示值 != null) ? c.显示值 : ((草稿 && 草稿[c.字段]) || '');
   var 配上 = null;
   for (var i = 0; i < c.项们.length; i++) {
     if (c.值的(c.项们[i]) === 值) { 配上 = c.项们[i]; break; }
@@ -1249,7 +1267,9 @@ function 画参数(p) {
     + '<input class="inp num" type="number" data-参数="卡住上限分" value="' + (p.卡住上限分 || 0) + '">'
     + '<span class="lb">分</span>'
     + '<span class="hint">⚠️ 从上一条发成功算起,只有出事才会到点</span></div>'
-    + '<div class="fr"><span class="ck2' + (p.限流就换号 ? ' on' : '') + '" data-参数勾="限流就换号">'
+    // 🔴 热区整行,理由见编辑器里那个「启用冷却」(2026-11-10)。
+    + '<div class="fr ckrow" data-参数勾="限流就换号">'
+    + '<span class="ck2' + (p.限流就换号 ? ' on' : '') + '">'
     + (p.限流就换号 ? '✓' : '') + '</span><span class="lb">一撞限流就换号</span></div>'
     + '<div class="hint">⚠️ 只认<b>影子软限流</b>(ret=0 但没 feed_id)。'
     + '<code>ret=35014</code> 是<b>重复内容判重</b>,换号一点用没有 —— 该换的是评论文本。</div>'
@@ -1259,7 +1279,8 @@ function 画参数(p) {
     //    而且 35014 判重会把好号误判掉。调参数、换选择器之后都该先干跑一遍。
     + '<div class="blk' + (p.干跑 ? '' : '') + '" style="'
     + (p.干跑 ? 'border-color:#f0d9a8;background:var(--warnbg)' : '') + '">'
-    + '<div class="fr"><span class="ck2' + (p.干跑 ? ' on' : '') + '" data-参数勾="干跑">'
+    + '<div class="fr ckrow" data-参数勾="干跑">'
+    + '<span class="ck2' + (p.干跑 ? ' on' : '') + '">'
     + (p.干跑 ? '✓' : '') + '</span>'
     + '<span class="lb"><b>干跑</b> —— 走完整条链,最后不点发布</span></div>'
     + '<div class="hint">换了选择器、调了参数、新号第一次上,都先开著跑一遍。'
@@ -1267,17 +1288,31 @@ function 画参数(p) {
 }
 
 // ══ 屏③ 任务编辑器 ════════════════════════════════════
+// ⭐ 「选评论池」下拉里的一项,但它**不是一个池名**,是【换一种填法】。
+//    2026-11-10 用户提的:「或许我们可以把本地结合到远程去,在选择评论池时
+//    增加一个『自己输入』选项就好?」—— 查下来他说得对:引擎里这两种
+//    只差【池从哪来】一件事(rotation.js 窗口好了:远程拉网址、自己输入拿
+//    bulletList,之后同一条 挑文本/判重/换号 的路),所以「任务模式」
+//    本来就不该是一个要人先学会的独立开关。
+// ⚠️ 存下去的字段没变:还是 `taskMode: '本地'|'远程'`,老任务不用迁。
+var 自填标记 = '✎ 自己输入';
+
+/** 离开编辑器就把试连那份【全文】清掉。
+ *  ⚠️ 它可能有 5000 行,而快照每 250 毫秒要 stringify 一遍 ——
+ *     和「看日志」收起时清远端那份(`收过往日志`)同一个理由。
+ *  ⚠️ 刻意复用 `试连` 这个意图名(剧名留空 = 清掉):新意图名要在
+ *     引擎服务.java 的 switch 里加一行 = 层 1 = 逼所有人重装 APK。 */
+function 清预览() {
+  if (快照 && 快照.预览) 发意图('试连', { 剧名: '' });
+}
+
 // 字段顺序/标签/默认值【逐条对过插件 task-panel.js:392-480】(UI决策.md §3)
 function 画编辑器() {
   var t = 草稿, 远程 = t.taskMode === '远程', h = '';
 
-  // ⚠️ 远程在左、本地在右(用户 2026-10-25 定的)。**这是刻意和插件不一样的** ——
-  //    插件是「本地 | 远程」(task-panel.js:436),但它的默认值又是 remote,
-  //    等于把默认那个摆在第二格。我们默认也是远程,所以默认的摆左边。
-  //    下次拿插件逐条对表时别把它「改回去」。
-  h += '<div class="fr"><span class="lb" style="width:56px">任务模式</span>'
-     + '<div class="seg"><div' + (远程 ? ' class="on"' : '') + ' data-模式="远程">远程</div>'
-     + '<div' + (远程 ? '' : ' class="on"') + ' data-模式="本地">本地</div></div></div>';
+  // ⚠️⚠️ 这儿原来有一行「任务模式:远程 | 本地」的分段控件,2026-11-10 **拆了**。
+  //    它现在是「选评论池」下拉里的一项(`自填标记`)。拆掉的理由见那个常量。
+  //    `data-模式` 那个 handler 留着没删:老面板缓存/单测还可能发得出来。
 
   // ➕ 目标页面 —— 插件靠「你人在哪个剧集页」推断,App 没这个前提
   // ⭐ 清单来自 whitelist.json 的 dramaLinks。手敲 `mzc00200kon535w` 这种 id
@@ -1295,23 +1330,32 @@ function 画编辑器() {
          },
        })
      + '</div>';
-  if (远程) {
-    // ⭐ 评论池下拉(用户 2026-10-25:「要参考插件,有选单」)。
+  // ⭐ 评论池下拉(用户 2026-10-25:「要参考插件,有选单」)。
     //    清单 = whitelist.json 的 `dramas` = **有评论文件的剧**,和插件同一份
     //    (task-panel.js:502)。它和上面那个 dramaLinks 不一定一样:
     //    有播放页链接 ≠ 有评论池,所以两个下拉各读各的。
-    // ⚠️ 栏名叫「选评论池」不叫「选剧名」——「剧名」说不出它是干嘛的
-    //    (用户 2026-10-25:「看起来不明白是评论池」)。值还是剧名,只是换了说法。
-    h += '<div class="fr"><span class="lb" style="width:56px">选评论池</span>'
-       + 挑一个({
-           字段: 'remoteDrama',
-           项们: 快照.剧名们 || [],
-           占位: '还没选 —— 挑一个评论池',
-           只能挑: true,   // 池必须是仓里真有的目录,手敲没有意义
-           值的: function (d) { return d.名; },
-           画一项: function (d) { return '<span class="nm">' + esc(d.名) + '</span>'; },
-         })
-       + '<div class="sm" data-意图="试连">测试连接</div></div>';
+  // ⚠️ 栏名叫「选评论池」不叫「选剧名」——「剧名」说不出它是干嘛的
+  //    (用户 2026-10-25:「看起来不明白是评论池」)。值还是剧名,只是换了说法。
+  h += '<div class="fr"><span class="lb" style="width:56px">选评论池</span>'
+     + 挑一个({
+         字段: 'remoteDrama',
+         // ⭐ 第一项是「自己输入」,后面才是仓里那些池。
+         项们: [{ 名: 自填标记, 自填: true }].concat(快照.剧名们 || []),
+         占位: '还没选 —— 挑一个评论池',
+         只能挑: true,   // 池必须是仓里真有的目录,手敲没有意义
+         // ⚠️ 自己输入时 `remoteDrama` 本来就该是空的(存下去也是空的),
+         //    所以【显示】另给一个值,不然它会掉回占位「还没选」——
+         //    那是骗人的:其实已经选了,只是选的不是一个池。
+         显示值: 远程 ? null : 自填标记,
+         值的: function (d) { return d.名; },
+         画一项: function (d) {
+           return '<span class="nm">' + esc(d.名) + '</span>'
+                + (d.自填 ? '<span class="u">自己写几条,不从仓里拉</span>' : '');
+         },
+       })
+     + (远程 ? '<div class="sm" data-意图="试连">测试连接</div>' : '')
+     + '</div>';
+  if (远程) {
     var pv = 快照.预览;
     if (pv) {
       h += '<div class="fr"><span class="lb">评论预览</span><span style="flex:1"></span>'
@@ -1319,8 +1363,17 @@ function 画编辑器() {
             : pv.条数 ? '<span class="pill run">拉到 ' + pv.条数 + ' 条</span>'
                       : '<span class="pill bad">' + esc(pv.错 || '一条都没有') + '</span>')
          + '</div>';
-      if (pv.头几条 && pv.头几条.length) {
-        h += '<div class="log">' + pv.头几条.map(esc).join('\n') + '</div>';
+      // ⭐ 可滚、可选中、可复制(2026-11-10 用户:「插件中本来可以滚动查看并复制,
+      //    因为有的人可能想复制一些去给『本地』模式用」)。
+      //    用 readonly textarea 而不是 div:长按就有系统自带的「全选 / 复制」,
+      //    不用我们自己做一套,而且 textarea 本来就会滚。
+      // ⚠️ 内容【不写进 HTML】,由 填回草稿 那一趟灌进去 ——
+      //    5000 行塞进 innerHTML 每次重绘都要重新解析一遍。
+      if (pv.条数 > 0) {
+        h += '<textarea class="inp ta pv" data-池预览 readonly></textarea>'
+           + '<div class="fr"><span class="hint">长按可以全选、复制</span>'
+           + '<span style="flex:1"></span>'
+           + '<div class="sm" data-意图="塞进自填">全部塞进「自己输入」</div></div>';
       }
       // ⚠️ 池小了会一直撞 35014。实测:内置 20 条时一路判重,真池 5000 条后全消失。
       if (pv.条数 > 0 && pv.条数 < 50) {
@@ -1341,7 +1394,9 @@ function 画编辑器() {
     h += '<div class="fr"><span class="lb" style="width:56px">任务名</span>'
        + '<input class="inp grow" data-字段="name" placeholder="给它起个名"></div>'
        + '<div class="fr"><span class="lb">评论内容 —— 一条一行</span></div>'
-       + '<textarea class="inp ta" data-字段="bulletList"></textarea>';
+       + '<textarea class="inp ta" data-字段="bulletList"></textarea>'
+       + '<div class="hint">空行和重复的会自己去掉。'
+       + '想从哪个池里抄一段:上面挑那个池 → 测试连接 → 「全部塞进『自己输入』」。</div>';
   }
 
   h += '<div class="fr"><span class="lb">每隔</span>'
@@ -1354,21 +1409,34 @@ function 画编辑器() {
      + '<span class="lb">条结束</span>'
      + '<span class="hint">0=不限;<b>只算真成功</b>(拿到 feed_id);和「每段上限分」先到先算</span></div>';
 
-  h += '<div class="fr"><span class="ck2' + (t.cooldownEnabled ? ' on' : '') + '" data-勾字段="cooldownEnabled">'
+  // 🔴 热区是【整行】,不是那个 16px 的小方块。2026-11-10 用户报
+  //    「启用冷却...现在好像没折叠也不可选」—— 点在字上 `closest('[data-勾字段]')`
+  //    从文字往上找不到,于是什么都不会发生。和「下载并安装新版」那颗钮
+  //    (铁律 18.18)是同一类静默失效,只是那次漏的是分支、这次是热区。
+  h += '<div class="fr ckrow" data-勾字段="cooldownEnabled">'
+     + '<span class="ck2' + (t.cooldownEnabled ? ' on' : '') + '">'
      + (t.cooldownEnabled ? '✓' : '') + '</span>'
-     + '<span class="lb">启用冷却(到量/到点暂停一会,防限流)</span></div>';
+     + '<span class="lb">启用冷却(到量/到点暂停一会,防限流)</span>'
+     + '<span style="flex:1"></span>'
+     + '<span class="hint">' + (t.cooldownEnabled ? '收起 ▴' : '关着 ▾') + '</span></div>';
 
-  // ⚠️ 冷却关掉时【置灰】不是 hidden —— 不跳版,而且看得见自己关了什么
-  h += '<div class="blk' + (t.cooldownEnabled ? '' : ' off') + '"><div class="bt">冷却</div>'
-     + '<div class="fr"><span class="lb">①每发</span>'
-     + '<input class="inp num" type="number" data-字段="cooldownByCount">'
-     + '<span class="lb">条</span><span class="hint">0=不按条</span></div>'
-     + '<div class="fr"><span class="lb">②每运行</span>'
-     + '<input class="inp num" type="number" data-字段="runDuration">'
-     + '<span class="lb">分</span><span class="hint">0=不按时</span></div>'
-     + '<div class="fr"><span class="lb">暂停</span>'
-     + '<input class="inp num" type="number" data-字段="pauseDuration">'
-     + '<span class="lb">分</span></div></div>';
+  // ⭐ 关掉就【真收起来】(2026-11-10 用户:「应该折叠起来可选吧」)。
+  // ⚠️ 原来是置灰不隐藏(`.blk.off{opacity:.45;pointer-events:none}`),
+  //    当时的理由是「不跳版,而且看得见自己关了什么」。改掉是因为那三行
+  //    一直占着大半屏,而且置灰在手机上更像「坏了」不像「关了」——
+  //    现在那一行自己写着「关着 ▾」,这件事说出来了,就不用靠占位子表达。
+  if (t.cooldownEnabled) {
+    h += '<div class="blk"><div class="bt">冷却</div>'
+       + '<div class="fr"><span class="lb">①每发</span>'
+       + '<input class="inp num" type="number" data-字段="cooldownByCount">'
+       + '<span class="lb">条</span><span class="hint">0=不按条</span></div>'
+       + '<div class="fr"><span class="lb">②每运行</span>'
+       + '<input class="inp num" type="number" data-字段="runDuration">'
+       + '<span class="lb">分</span><span class="hint">0=不按时</span></div>'
+       + '<div class="fr"><span class="lb">暂停</span>'
+       + '<input class="inp num" type="number" data-字段="pauseDuration">'
+       + '<span class="lb">分</span></div></div>';
+  }
 
   // ⚠️ 限流块【不受冷却开关管】—— 照插件 blkPubLimit.hidden = !pub,只跟模式走
   h += '<div class="blk"><div class="bt warm">限流</div>'
@@ -1394,6 +1462,15 @@ function 画编辑器() {
 function 填回草稿() {
   // ⚠️ 查【整个文档】不是 `#内容` —— 编辑器 2026-10-27 搬进抽屉了,
   //    抽屉和 `#内容` 是两棵树,只查 `#内容` 会一个字段都找不到(= 编辑器失忆)。
+  // ⭐ 试连那份全文单独灌 —— 它【不是草稿的一部分】(没有 data-字段,
+  //    所以 收草稿 也不会把它收走),只是摆出来给人看和抄。
+  // ⚠️ 没变就不写:重绘 一般会把这棵树整个重建(那时本来就是空的),
+  //    但没重建的那几次能省下一次 5000 行的写入。
+  var 预框 = document.querySelector('[data-池预览]');
+  if (预框) {
+    var 全 = (快照.预览 && 快照.预览.全文) || '';
+    if (预框.value !== 全) 预框.value = 全;
+  }
   document.querySelectorAll('[data-字段]').forEach(function (el) {
     var k = el.getAttribute('data-字段');
     el.value = (k === 'bulletList') ? (草稿.bulletList || []).join('\n')
@@ -2630,6 +2707,9 @@ function 派发(ev) {
     // ⚠️ 收之前先把表单收回草稿 —— 不然用户刚敲的字随抽屉一起没了。
     //    (「取消」本来就该丢弃,但 `弃编辑` 那条路会走到这儿之后才清,顺序不能反。)
     if (编辑中 && 草稿 && document.querySelector('[data-字段]')) 收草稿();
+    // ⚠️ 试连那份全文也要清 —— 和下面那句清日志同一个理由,
+    //    看一眼的代价不该是永久的(5000 行 x 每 250 毫秒 stringify 一遍)。
+    if (编辑中) 清预览();
     // ⚠️ 看日志 收起时要把【远端那份】也清掉 —— 那 200 条待在快照里的话,
     //    快照每 250 毫秒就要多 stringify 一遍。看一眼的代价不该是永久的。
     if (看日志) 发意图('收过往日志');
@@ -2677,7 +2757,17 @@ function 派发(ev) {
     //    写草稿会被那一下读回来的框盖掉(铁律 18.6)。触发器模式下那个框是 hidden,
     //    但照样是 `[data-字段]`,所以这里只有一条路、没有特例。
     var 框 = 给谁 && document.querySelector('[data-字段="' + 给谁 + '"]');
-    if (框) 框.value = 挑中了;
+    // ⭐ 「选评论池」那一栏里的 `✎ 自己输入` 不是池名,是【换一种填法】。
+    //    挑它 = taskMode 切 '本地' 且把 remoteDrama 清空;挑一个真池 = 切回 '远程'。
+    // ⚠️ taskMode 不是表单字段,所以写草稿安全(和原来 `data-模式` 那条一样);
+    //    remoteDrama 是表单字段,所以写【框】不写草稿(铁律 18.6)。
+    if (给谁 === 'remoteDrama') {
+      收草稿();
+      草稿.taskMode = (挑中了 === 自填标记) ? '本地' : '远程';
+      if (框) 框.value = (挑中了 === 自填标记) ? '' : 挑中了;
+    } else if (框) {
+      框.value = 挑中了;
+    }
     if (给谁) 手填的[给谁] = false;
     弹层开的是 = null;
     重绘();                       // 重绘 自己会 收草稿,把刚写进去的收走
@@ -2767,15 +2857,37 @@ function 派发(ev) {
   else if (i === '切多选')   { 多选中 = !多选中; if (!多选中) 发意图('清空勾选'); 重绘(); }
   else if (i === '切参数')   { 参数开 = !参数开; 重绘(); }
   else if (i === '新任务')   开编辑器('new');
-  else if (i === '弃编辑')   { 编辑中 = null; 草稿 = null; 弹层开的是 = null; 手填的 = {};
+  else if (i === '弃编辑')   { 清预览();
+                              编辑中 = null; 草稿 = null; 弹层开的是 = null; 手填的 = {};
                               画抽屉(); 重绘(); }
   else if (i === '试连')     { 收草稿(); 发意图('试连', { 剧名: 草稿.remoteDrama }); }
+  // ⭐ 把刚试连拉到的那一池整个灌进「自己输入」(2026-11-10 用户要的那条路:
+  //    「有的人可能想复制一些去给本地模式用」)。比手动全选复制再粘贴少两步。
+  // ⚠️ 这条【完全在面板里做完】,没有发新意图 —— 新意图名要在 引擎服务.java
+  //    的 switch 里加一行 = 层 1 = 逼所有人重装 APK(铁律 18.18 那一节也说的这件事)。
+  else if (i === '塞进自填') {
+    var 全文 = (快照.预览 && 快照.预览.全文) || '';
+    if (!全文) return;
+    收草稿();
+    草稿.taskMode = '本地';
+    草稿.bulletList = 全文.split(String.fromCharCode(10))
+                       .map(function (x) { return x.trim(); })
+                       .filter(function (x) { return !!x; });
+    // ⚠️ remoteDrama 是表单字段,写框不写草稿(铁律 18.6)。
+    //    bulletList 那个 textarea 这会儿还没画出来,所以写草稿是安全的 ——
+    //    下面 重绘() 开头的 收草稿() 查不到它,盖不掉。
+    var 池框 = document.querySelector('[data-字段="remoteDrama"]');
+    if (池框) 池框.value = '';
+    重绘();
+  }
   else if (i === '存任务') {
     收草稿();
+    清预览();
     发意图('存任务', { id: 编辑中 === 'new' ? null : 编辑中, 任务: 草稿 });
     编辑中 = null; 草稿 = null; 画抽屉(); 重绘();
   } else if (i === '删任务') {
     if (confirm('删掉这个任务?')) {
+      清预览();
       发意图('删任务', { id: 编辑中 });
       编辑中 = null; 草稿 = null; 画抽屉(); 重绘();
     }
