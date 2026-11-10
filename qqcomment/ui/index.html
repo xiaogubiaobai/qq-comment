@@ -373,6 +373,12 @@
   /* ⚠️ 暖底上【不用】`.pill.bad` —— 红底红字摞在暖色上又吵又像「出错了」,
         而整块本身就已经是警示了。统一用这一档深暖,安静但看得见。 */
   .暖通栏 .pill{background:#f3e0bb;color:#6b5418}
+  /* ⭐ 受限设置收成的那一行入口(照「小菇爱表白」checkin.js 的 `受限标题`)。
+     ⚠️ 用蓝 —— 这个面板里**蓝色一律等于「能点」**(见 .big 那段注释)。
+        暖底上摆一行蓝字看着有点外来,但「能不能点」比「配不配色」要紧。
+     ⚠️ min-height 44:和那几个勾一样,拇指的下限。 */
+  .折{display:flex;align-items:center;min-height:44px;cursor:pointer;
+      font-size:12.5px;color:var(--acc);-webkit-tap-highlight-color:transparent}
   .blk{background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);border:1px solid var(--line);border-radius:10px;padding:10px 11px;
        display:flex;flex-direction:column;gap:8px;flex:0 0 auto;position:relative}
   /* ⚠️ 冷却关掉时【置灰】不是 hidden —— 不跳版,而且看得见自己关了什么(UI决策.md §3) */
@@ -619,8 +625,11 @@ var 看日志 = false;
 //       通知收掉之后前台服务照样 isForeground=true(manifest 里原来那句
 //       「不给的话前台服务起不来」是错的,已改),「安装未知应用」只有自助更新才要。
 var 缺悬浮窗 = false;
-// 「开始之前」那块收起来没有。**默认收起**,但缺权限时强制张开(见 画开始之前)。
-var 设置区收起 = true;
+// 受限设置那段展开没有。**默认收起** —— 多数手机根本不需要它
+// (表白那边的结论:「只有开关点不动时才要」),摊开来反而把真正要做的那件事挤下去。
+// ⚠️ 表白那边还会「真检测到被挡时自动展开一次」。我们这头**检测不了** ——
+//    那要读 appop,得走原生 = 层 1。所以只能等用户自己点。
+var 受限展开 = false;
 var 展开的 = null;         // 点名字就地展开的那个号,不跳详情页
 var 多选中 = false;        // 屏② 的「多选组队」—— 是【模式】不是块
 var 参数开 = false;        // 屏② 参数折叠
@@ -1569,51 +1578,44 @@ function 日志块(额外类, 行们) {
  *    要把它们也做成行,得改 Java = 层 1 = 重打 APK。
  */
 function 画开始之前() {
-  var 缺 = !!缺悬浮窗;
-  var 收 = 缺 ? false : 设置区收起;
-  // 🔴 **黄 = 有事要你做**,所以只有缺着的时候才黄:
-  //      缺  -> 通栏暖块,和别屏那条黄条同色、同位置、同形状(打样第 C 格)
-  //      齐  -> 缩回一张安静的白卡、收成一行,把首屏还给真正常用的东西(第 D 格)
-  //    开好之后还黄着,等于那块黄从此不再有意义 —— 下次真有事也没人看了。
-  var 深 = 缺 ? '#6b5418' : 'var(--ink)';
-  var h = 缺 ? '<div class="暖通栏">' : '<div class="card">';
-  h += '<div class="fr ckrow"' + (缺 ? '' : ' data-收设置区') + '>'
-     + '<span class="lb" style="font-size:15px;color:' + 深 + '"><b>开始之前</b></span>'
+  // 🔴 **开好了就什么都不留**(2026-11-10 用户定的:「整块消失,留一行灰字
+  //    换放到设置那边去」)。确认「我到底开过没有」是**设置**该管的事,
+  //    账号屏是干活的地方 —— 见 画设置屏 入口层那一行「悬浮窗」。
+  if (!缺悬浮窗) return '';
+
+  // ⚠️ **没有标题行。**原来顶着「开始之前」+「还差 1 项」两层,
+  //    而这里**统共就一项** —— 用户:「最上面这行不需要,这只有一项而已」。
+  //    状态并进那一行本身:「悬浮窗 还没开 … 去开 ›」。
+  var h = '<div class="暖通栏">';
+  h += '<div class="fr ckrow" data-去悬浮窗>'
+     + '<span class="lb" style="font-size:15px;color:#6b5418">'
+     + '<b>悬浮窗</b> 还没开</span>'
      + '<span style="flex:1"></span>'
-     + '<span class="pill' + (缺 ? '' : ' run') + '">'
-     + (缺 ? '还差 1 项' : '都齐了') + '</span>'
-     + (缺 ? '' : '<span class="hint">' + (收 ? '▾' : '▴') + '</span>')
-     + '</div>';
-  if (收) {
-    // ⚠️ 收起时补一行摘要 —— 别让状态凭空消失。
-    h += '<div class="hint" style="margin-top:0">悬浮窗 已开</div>';
-  } else {
-    h += '<div class="fr ckrow" data-去悬浮窗>'
-       + '<span class="lb" style="color:' + 深 + '">悬浮窗</span>'
-       + '<span style="flex:1"></span>'
-       + (缺 ? '<span class="pill">还没开</span>'
-             : '<span class="hint">已开</span>')
-       + '<span class="hint">›</span></div>';
-    if (缺) {
-      h += '<div class="hint">没有它,页面退到后台 <b>67 秒</b>就会停摆,挂机跑不了。'
-         + '点上面那一行去开。</div>'
-         // 🔴 这一段是 2026-11-10 在模拟器上逮到的:安卓 17 上那个开关是**灰的**,
-         //    点了弹「App was denied access」。证据:packageSource=3(从下载的文件装的)
-         //    + appop `ACCESS_RESTRICTED_SETTINGS: ignore`。
-         //    用户从下载页下 APK 再点开装,走的是同一条路 —— 所以这不是模拟器特例。
-         //    表白那边 CLAUDE.md 把它列为「用户那边的三道坎」之一。
-         + '<div class="hint" style="color:var(--warn)">⚠️ <b>开关是灰的、点了弹「已拒绝访问」?</b>'
-         + ' 安卓 13 起对「下载安装的 App」多了一道闸,先解开它:<br>'
-         + '系统设置 → 应用 → <b>小菇爱评论</b> → <b>右上角那三个点</b> → <b>允许受限设置</b>,'
-         + '再回这儿开。</div>';
-    }
-    // ⚠️ 这段**只在都齐了的时候画**。还缺着的时候屏幕上只该有一件要做的事 ——
-    //    把「其它权限怎么回事」摆在旁边,会跟那条唯一的指示抢注意力。
-    if (!缺) {
-      h += '<div class="hint">其它的不用你操心:<b>通知</b>第一次打开会自己弹框问'
-         + '(不给也照样跑,只是看不到那条常驻通知);<b>安装未知应用</b>只有用'
-         + '「下载并安装新版」时才要。</div>';
-    }
+     + '<span class="hint" style="color:#8a7340">去开 ›</span></div>';
+  h += '<div class="hint">没有它,页面退到后台 <b>67 秒</b>就会停摆,挂机跑不了。</div>';
+
+  // 🔴 受限设置**收成一行**,点开才摊。照「小菇爱表白」那边的结论:
+  //    「多数手机不需要,只有开关点不动时才要」——
+  //    它原先在我们这儿是全文摊着的,占了整块一半还最抢眼,
+  //    而真正要做的只有上面那一行。表白那边也返过工:
+  //    「同一件事三个入口…『打开应用信息』排在『去开启』前面,可它多数人根本不需要做」。
+  h += '<div class="折" data-受限>开关是灰的、点不动?&nbsp;'
+     + (受限展开 ? '⌄' : '›') + '</div>';
+  if (受限展开) {
+    // 这一段是 2026-11-10 在模拟器上逮到的:安卓 17 上那个开关是**灰的**,
+    // 点了弹「App was denied access」。证据:packageSource=3(从下载的文件装的)
+    // + appop `ACCESS_RESTRICTED_SETTINGS: ignore`。用户从下载页下 APK 再点开装,
+    // 走的是同一条路 —— 不是模拟器特例。
+    h += '<div class="hint" style="color:var(--warn)">安卓 13 起,'
+       + '<b>从文件装的应用</b>要先解锁一次:<br>'
+       + '打开应用信息 → 点<b>右上角那三个点</b> → <b>允许受限设置</b><br>'
+       + '(个别品牌位置不同,找带「受限」字样的那一项)</div>'
+       // ⚠️⚠️ 表白那边这儿还有一颗【打开应用信息】钮,一点直达本应用的信息页。
+       //    我们**做不了** —— 它要 `ACTION_APPLICATION_DETAILS_SETTINGS`,
+       //    得在 主界面.桥 里新开一个方法 = **层 1** = 下个 APK。
+       //    在那之前只能把路径写出来让用户自己翻。别为了「有颗钮」
+       //    拿 去开悬浮窗() 顶替:那条跳的是悬浮窗页,上面没有那三个点。
+       + '<div class="hint">(下个版本这儿会有一颗「打开应用信息」直接跳过去)</div>';
   }
   return h + '</div>';
 }
@@ -2427,7 +2429,18 @@ function 画设置屏(题, 右1, 右2, 内容) {
   if (!子) {
     设置页 = '';              // 认不出就退回入口层 —— 别画一张白屏出来
     题.textContent = '设置';
-    内容.innerHTML = 设置子页们.map(function (x) {
+    // 🔴 第一行是**悬浮窗**,它和下面那几行**不是一类东西**:
+    //    下面是进子页,这一行是**跳出去到系统设置**。
+    //    形状照旧(名字 + 现状 + ›)是故意的 —— 箭头在这个面板里就是「会走一趟」,
+    //    做成 Switch 会骗人:一拨就跳走、回来还是原样,像坏了(表白那边记过)。
+    // ⚠️ 为什么摆这儿:账号屏那块**开好之后整块消失**了(2026-11-10 用户定的),
+    //    而「我到底开过没有、想回头关掉」总得有个地方点得到 —— 就是这一行。
+    var 浮 = '<div class="entry" data-去悬浮窗>'
+           + '<span class="et">悬浮窗</span>'
+           + '<span class="ev"' + (缺悬浮窗 ? ' style="color:var(--warn)"' : '') + '>'
+           + (缺悬浮窗 ? '还没开' : '已开') + '</span>'
+           + '<span class="ea">&rsaquo;</span></div>';
+    内容.innerHTML = 浮 + 设置子页们.map(function (x) {
       var 现 = x.现状 ? x.现状() : '';
       return '<div class="entry" data-设置页="' + x.键 + '">'
            + '<span class="et">' + esc(x.名) + '</span>'
@@ -2857,8 +2870,8 @@ function 派发(ev) {
     重绘();                       // 重绘 自己会 收草稿,把刚写进去的收走
     return;
   }
-  // ⭐ 账号屏「开始之前」那一块
-  if (ev.target.closest('[data-收设置区]')) { 设置区收起 = !设置区收起; 重绘(); return; }
+  // ⭐ 账号屏那块暖通栏 / 设置屏第一行
+  if (ev.target.closest('[data-受限]')) { 受限展开 = !受限展开; 重绘(); return; }
   if (ev.target.closest('[data-去悬浮窗]')) {
     if (window.安卓 && 安卓.去开悬浮窗) 安卓.去开悬浮窗();
     return;
