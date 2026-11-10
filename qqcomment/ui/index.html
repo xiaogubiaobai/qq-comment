@@ -361,6 +361,18 @@
         `data-勾字段`,点在字上 `closest()` 往上找不到 = 什么都不会发生,
         用户报「启用冷却好像不可选」就是这个。min-height 44 是拇指的下限。 */
   .ckrow{min-height:44px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  /* ⭐ 账号屏「开始之前」缺权限时那块通栏暖块(打样 mockup/打样-开始之前-黄条.html
+        第 C 格,用户 2026-11-10 挑的)。底色/内距和顶上那条 `.banner` 一样,
+        只是更高、放得下几行 —— 量过:两者距顶栏都是 52px,切屏时那条黄的不跳。
+     ⚠️ 负边距是为了在 `.body`(padding:11px 13px)里顶到边 —— 它待在滚动区
+        **里面**,所以往下滚会走掉。摆到滚动区外面就钉死了:别屏那条只有一行、
+        钉着无所谓,这块有五行,钉着会永远吃掉小半屏。 */
+  .暖通栏{background:var(--warnbg);color:#7a6224;padding:10px 13px;flex:0 0 auto;
+          margin:-11px -13px 0;border-bottom:1px solid var(--warnline)}
+  .暖通栏 .hint{color:#8a7340}
+  /* ⚠️ 暖底上【不用】`.pill.bad` —— 红底红字摞在暖色上又吵又像「出错了」,
+        而整块本身就已经是警示了。统一用这一档深暖,安静但看得见。 */
+  .暖通栏 .pill{background:#f3e0bb;color:#6b5418}
   .blk{background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);border:1px solid var(--line);border-radius:10px;padding:10px 11px;
        display:flex;flex-direction:column;gap:8px;flex:0 0 auto;position:relative}
   /* ⚠️ 冷却关掉时【置灰】不是 hidden —— 不跳版,而且看得见自己关了什么(UI决策.md §3) */
@@ -1559,11 +1571,16 @@ function 日志块(额外类, 行们) {
 function 画开始之前() {
   var 缺 = !!缺悬浮窗;
   var 收 = 缺 ? false : 设置区收起;
-  var h = '<div class="card">';
+  // 🔴 **黄 = 有事要你做**,所以只有缺着的时候才黄:
+  //      缺  -> 通栏暖块,和别屏那条黄条同色、同位置、同形状(打样第 C 格)
+  //      齐  -> 缩回一张安静的白卡、收成一行,把首屏还给真正常用的东西(第 D 格)
+  //    开好之后还黄着,等于那块黄从此不再有意义 —— 下次真有事也没人看了。
+  var 深 = 缺 ? '#6b5418' : 'var(--ink)';
+  var h = 缺 ? '<div class="暖通栏">' : '<div class="card">';
   h += '<div class="fr ckrow"' + (缺 ? '' : ' data-收设置区') + '>'
-     + '<span class="lb" style="font-size:15px;color:var(--ink)"><b>开始之前</b></span>'
+     + '<span class="lb" style="font-size:15px;color:' + 深 + '"><b>开始之前</b></span>'
      + '<span style="flex:1"></span>'
-     + '<span class="pill ' + (缺 ? 'bad' : 'run') + '">'
+     + '<span class="pill' + (缺 ? '' : ' run') + '">'
      + (缺 ? '还差 1 项' : '都齐了') + '</span>'
      + (缺 ? '' : '<span class="hint">' + (收 ? '▾' : '▴') + '</span>')
      + '</div>';
@@ -1572,9 +1589,9 @@ function 画开始之前() {
     h += '<div class="hint" style="margin-top:0">悬浮窗 已开</div>';
   } else {
     h += '<div class="fr ckrow" data-去悬浮窗>'
-       + '<span class="lb" style="color:var(--ink)">悬浮窗</span>'
+       + '<span class="lb" style="color:' + 深 + '">悬浮窗</span>'
        + '<span style="flex:1"></span>'
-       + (缺 ? '<span class="pill bad">还没开</span>'
+       + (缺 ? '<span class="pill">还没开</span>'
              : '<span class="hint">已开</span>')
        + '<span class="hint">›</span></div>';
     if (缺) {
