@@ -19,5 +19,13 @@
       "sha256": "6e1609dfa554eca1a3a2c68c651451ca90b409a2b57b59609665f5ab2ea244ff",
       "大小": 242446
     }
+  },
+  "APK": {
+    "版本号": 9,
+    "版本名": "1.8-beta",
+    "sha256": "ae8ae9731bab8058e5fc1cc4fb7e3feffe56639f888541aa681b227aadca0082",
+    "大小": 3528397,
+    "地址": "https://gitee.com/flyten1129/qq-comment/releases/download/beta/qq-comment-beta.apk",
+    "备用地址": "https://github.com/xiaogubiaobai/qq-comment/releases/download/v1.8-beta/qq-comment-beta.apk"
   }
 }
