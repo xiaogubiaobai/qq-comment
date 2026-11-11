@@ -19,6 +19,19 @@
 
 两处是同一个文件。这两条地址**不会变** —— 以后出新版还是它们,直接重新下就行。
 
+### 尝鲜版(beta)
+
+想先试新东西的话,还有一个 **beta 版**。它是**另一个 App**(名字叫「小菇爱评论(beta)」),
+和上面那个**并排装在同一台手机上**,互不干扰 —— beta 出问题,正在跑的那个不受影响。
+
+| 从哪下 | 地址 |
+|---|---|
+| **Gitee**(国内走这个) | https://gitee.com/flyten1129/qq-comment/releases/download/beta/qq-comment-beta.apk |
+| GitHub | https://github.com/xiaogubiaobai/qq-comment/releases |
+
+⚠️ **它的帐号是空的。** 两个 App 的数据各自独立 —— beta 里要测,得重新扫码登一次。
+⚠️ beta 会更新得更勤,也更容易出毛病。**日常用正式那个就好。**
+
 ## 怎么装
 
 1. 下载 `qq-comment.apk`。
