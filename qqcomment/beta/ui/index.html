@@ -1,0 +1,3655 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>小菇爱评论</title>
+<!--
+  面板。⭐ 这一整个目录【可以远程更新】(DESIGN §18)—— 改了不用重装 APK。
+
+  和原生的接口只有两根线:
+    原生 → 这里   window.画(快照json)      每次状态变了推一次
+    这里 → 原生   安卓.意图(意图json)      见 core/快照字段.md §6
+
+  ⚠️ 护栏:
+    · 远程版必须签名校验 —— 这个文件被换掉 = 任意代码在你的 WebView 里跑
+    · assets/ 里这一份是【保底】,远程拉挂了要退得回来
+    · 不写 inline onclick —— 引号要在 JS 字符串里再转义一层,写错了整个脚本都不跑。踩过。
+
+  布局和配色照 ../../../../../mockup/ 的定稿,结论在 mockup/UI决策.md:
+    屏① 运行 → v6 第1张 · 屏④ 账号 → v20/v21 · 屏⑤ 加号 → v25
+  ⚠️ 打样里的数字是【逐像素量过的】(名字起始 x=50、两热区中心距 248px…),
+     照抄,别凭手感改。要改先回去改打样并重新量。
+-->
+<style>
+  :root{
+    /* 🔴 2026-11-09 UI 风格(打样 v49 方案 B + v50 的「整体 +1」)。
+       --paper 原来是 #fff —— 页面和卡片同色,只靠 1px 浅灰边分区,
+       手机上那条线基本看不见,用户原话「太素 / 区域也有点不明确」。
+       现在:**页面退成浅灰、卡片保持白**,靠底色差把区域立起来。
+       ⚠️ 只动颜色,不动任何尺寸关系。 */
+    --paper:#eef0f3; --card:#fff;
+    --ink:#16181c; --ink2:#5b6270; --ink3:#8d95a3;
+    --line:#e6e8ec; --soft:#f5f6f8; --acc:#2f6be6; --accbg:#eaf1ff;
+    --ok:#1f8b5f; --okbg:#e6f5ee; --warn:#b3730a; --warnbg:#fdf2e0; --warnline:#f0d9a8;
+    --bad:#c23b36; --badbg:#fdecec;
+    /* 版本页专用:只给「时间」用。见 .vt 那一段 */
+    --time:#7b4fc4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{background:var(--paper);color:var(--ink);
+       font:14.5px/1.65 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+       display:flex;flex-direction:column;overscroll-behavior:none}
+
+  /* ── 顶栏 ── */
+  .top{display:flex;align-items:center;gap:10px;padding:10px 13px;
+       border-bottom:1px solid var(--line);flex:0 0 auto;background:var(--card)}
+  .top h1{font-size:18px;font-weight:500;flex:1;min-width:0;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* ⚠️ 页面屏的顶栏里放的是【真按钮 + 状态】,不是一行标题文字 —— 要能 flex。
+     ⚠️ 这一屏的顶栏要【压扁】:两行(工具栏 + 页签)本来就比原来多占一截,
+        实测不收的话顶部从 120 涨到 221 设备像素,差不多翻倍 —— 那是从浏览器身上抠走的。 */
+  .top h1.pagebar{display:flex;align-items:center;overflow:visible;margin:-5px 0}
+  .tbtn{font-size:15px;font-weight:700;color:var(--acc);white-space:nowrap;flex:0 0 auto}
+  .tbtn.mute{color:var(--ink3)}
+
+  /* 跑条:干跑是黄的,真发是红的 —— 真发是唯一会在别人评论区留下东西的状态,
+     不该和测试长一个样。不跑的时候整条不存在(display:none,高度 0)。 */
+  .runbar{display:none}
+  .runbar.on{display:flex;align-items:center;gap:6px;padding:6px 12px;
+             font-size:12px;line-height:1.5;border-bottom:1px solid var(--warnline)}
+  .runbar.gan{background:var(--warnbg);color:#7a6224}
+  .runbar.real{background:var(--badbg);color:var(--bad);border-bottom-color:#f0c2c0}
+  .runbar b{font-weight:700}
+  .runbar .stage{margin-left:auto;background:#fff;border:1px solid var(--warnline);
+                 border-radius:20px;padding:1px 8px;font-size:11px;white-space:nowrap}
+  .runbar.real .stage{border-color:#f0c2c0}
+  .banner{background:var(--warnbg);color:#7a6224;font-size:12.5px;line-height:1.7;
+          padding:8px 13px;flex:0 0 auto;display:none}
+
+  /* ── 主体 ── */
+  .body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:11px 13px;
+        display:flex;flex-direction:column;gap:8px;
+        /* 🔴 键盘弹起来时把底下那块地让出来 —— 值由文件末尾的 盯键盘() 写。
+           窗口自己会缩(adjustResize)的时候这个值恒为 0,等于没加。 */
+        padding-bottom:calc(11px + var(--键盘, 0px))}
+
+  /* 🔴🔴 「编辑任务 / 新增任务」是一【页】,不是弹窗(2026-11-08)。
+     原来它住抽屉:`position:fixed; inset:0` + `.sheet{bottom:0; max-height:88%}`。
+     那个形状和手机键盘必然打架,两种模式都坏,而且坏法不一样:
+       · 窗口会缩(adjustResize)-> 88% 是缩完之后的 88%,抽屉变成一条缝
+       · 窗口不缩(adjustPan;manifest 没声明 windowSoftInputMode,系统自己挑)
+         -> 抽屉钉在 bottom:0,整个被键盘盖住
+     用户 2026-11-08 实机报「根本编辑不了」。
+     ⚠️ 这推翻了 2026-10-26 那个决定(CLAUDE.md 18.11「编辑器住进抽屉」)。
+        当时的理由是「整页替换会把运行状态一起盖掉」—— 那个代价是真的,
+        但它换来的是「在手机上压根编辑不了」。编辑的时候看不见进度,
+        按一下取消就回来了;编不了是编不了。
+     ⚠️ 编辑态里【底栏藏起来】:这一页只有两个出口(右上角取消 · 底下保存)。
+        留着底栏就多一条暗路 —— 点一下 tab,没存的改动悄悄没了。
+        顺带把那 ~56px 还给内容,键盘弹着的时候这点高度很值钱。 */
+  body.编辑态 #底栏{display:none}
+
+  /* ── 底栏 ── */
+  /* 页面 TAB 的账号页签条(浏览器式)。
+     ⚠️ 和药丸的全部区别在这一条:**当前页是白的、往上和工具栏连成一片**,
+        别的页退在灰底里 —— 一眼看出上面那两个按钮和那行状态属于哪一页。
+        药丸做不到:两个都浮在灰条上,看着像两个并列的按钮,和工具栏没关系。
+     ⚠️ 2026-10-24 起【一直显示】,哪怕只开 1 个窗 ——
+        关闭入口永远在同一个地方,不随窗口数换地方。 */
+  .tabs{display:none;align-items:flex-end;flex:0 0 auto;overflow-x:auto;
+        background:#eceef1;padding-left:10px;white-space:nowrap;
+        -webkit-overflow-scrolling:touch}
+  .tabs.on{display:flex}
+  .tab{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;
+       color:var(--ink2);padding:4px 9px 5px 11px;font-size:12.5px}
+  .tab.now{background:var(--paper);color:var(--ink);border-radius:0 0 9px 9px;
+           padding:5px 9px 6px 11px;position:relative;top:-1px}
+  .tab .x{font-size:14px;line-height:1;opacity:.42;padding:0 2px}
+  .tab.now .x{opacity:.55}
+  /* 原来是个 5px 的绿点 —— 用户 2026-10-24:「是绿色的点,不是很理解」。
+     换成一个字。它同时回答两件事:这是哪个号在跑 + 为什么这一页没有 ×。 */
+  .tab .run{font-size:10px;color:#fff;background:var(--ok);border-radius:4px;
+            padding:0 4px;line-height:1.6;flex:0 0 auto;font-weight:700}
+  .tabsn{margin-left:auto;flex:0 0 auto;font-size:11px;color:var(--ink3);padding:0 10px 5px 0}
+  /* 顶栏左边那两个。⚠️ 以前是按 x 坐标切的【隐形点击区】——
+     没样子、没反馈、手指偏一点就没反应。现在是真按钮。 */
+  .navbtn{display:inline-flex;align-items:center;justify-content:center;
+          width:28px;height:28px;border:1px solid var(--line);border-radius:8px;
+          color:var(--ink2);font-size:16px;flex:0 0 auto;margin-right:8px}
+  .navbtn:active{background:var(--soft)}
+  /* 🔴 引擎在这一页上发评论时,‹ ↻ 换成这个。刻意【不是钮】——
+     没边框、没按下反馈,一眼就看得出点不了(「假入口比没入口更坏」)。*/
+  .navlock{display:inline-flex;align-items:center;font-size:12px;color:var(--ink3);
+           flex:0 0 auto;margin-right:8px}
+  .nav{display:flex;border-top:1px solid var(--line);flex:0 0 auto;
+       background:var(--card);
+       padding-bottom:env(safe-area-inset-bottom)}
+  /* ⚠️ 5 个 tab:每格 20%(原来 4 个是 25%)。字号 10 → 9.5px,
+     300dp 宽时每格 60px,图标 + 两个字仍放得下(打样 v26 量过)。 */
+  .nav div{flex:1;text-align:center;font-size:11.5px;color:var(--ink3);
+           line-height:1.45;padding:7px 0 9px}
+  .nav div b{display:block;font-size:22px;font-weight:400}
+  .nav .on{color:var(--acc)}
+
+  /* ── 通用件 ── */
+  /* ⚠️ `background` 是 2026-11-09 补的 —— 原来没有,白页白卡才会糊成一片。 */
+  .card{border:1px solid var(--line);border-radius:11px;padding:10px 11px;flex:0 0 auto;
+        background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05)}
+  .kv{display:flex;font-size:14.5px;padding:2px 0}
+  .kv>span:first-child{color:var(--ink3);width:80px;flex:0 0 auto}
+  .kv>span:last-child{flex:1;min-width:0}
+  .log{background:var(--card);font:11px/1.75 ui-monospace,monospace;color:var(--ink2);
+       background:var(--soft);border-radius:9px;padding:8px 10px;
+       white-space:pre-wrap;word-break:break-all;flex:0 0 auto}
+  /* 日志里的号名(见 日志块)。⚠️ 不斜体 —— 斜体等宽字常常退化成假斜,糊成一团。
+     ⚠️ 也【不加粗】:每条都有,加粗就是整块都在喊。靠色相认,不靠重量。 */
+  /* ⚠️ 用 --ink 不用 --acc:这一块里蓝色一律等于【能点】(跳过/跑着/› 都是),
+     日志是只读的,染成蓝的会被当成钮。要的是「比正文深一档」,不是「像链接」。 */
+  .log i{font-style:normal;color:var(--ink)}
+  .hint{font-size:12.5px;color:var(--ink3);line-height:1.8}
+  .big{width:100%;border:none;border-radius:11px;padding:14px 0;
+       font-size:18px;font-weight:500;background:var(--acc);color:#fff;flex:0 0 auto}
+  .big.off{background:#d9dde3;color:#fff}
+  .big.stop{background:#fff;color:var(--bad);border:1px solid var(--bad)}
+  /* —— 跑着时底下那一排:[暂停] [停止](打样 v46 方案 B,用户 2026-11-05 定的)——
+     ⚠️ **两个钮故意不一样宽**(用户原话:「暂停的宽度比停止小」)。
+        2:1 —— 停止 236px / 暂停 115px(393 宽量的)。为什么要这样:
+        并排两个一样大的钮等于**没有主次**,而跑着时最常按的出口是「停止」(铁律 18.8);
+        宽度差把主次说清楚,顺带也让两个钮**手感不一样** —— 按错的那一下
+        在摸到之前就知道不对。
+     ⚠️ 符号也是分开的(用户:「两边可以加入符号」):▮▮ 暂停 / ▶ 继续 / ■ 停止。
+        **全挑几何图形区**(U+25A0–U+25FF)—— 和账号屏那个 ▲▼ 同一块,
+        真机上验过画得出来。⏸ 那个字符【没用】:安卓常把它当表情画,
+        大小和颜色都不受我们控制(⠿ 就是这么变成两个小点的)。 */
+  .btnrow{display:flex;gap:8px;flex:0 0 auto}
+  .btnrow>.big{flex:2 1 0;min-width:0}
+  .btnrow>.big.hold{flex:1 1 0}
+  .big.hold{background:#fff;color:var(--ink2);border:1px solid var(--line)}
+  .big.go{background:var(--acc);color:#fff}
+  /* 「还没选号 —— 去账号挑」:能点,所以【不能长得像灰掉的】。描边蓝,和 .off 一眼分得开 */
+  .big.ask{background:#fff;color:var(--acc);border:1px solid var(--acc)}
+  /* 编辑器底部那行「删掉这个任务」(mockup v31 方案 B)。
+     ⚠️ 刻意【不是钮】—— 删除是这一屏最少用、而且撤不回来的操作,
+        原来它是整屏最大最红的东西,主次正好反了(用户 2026-10-25 指出)。
+        现在主钮是「保存」,删除降成一行字。 */
+  .delrow{text-align:center;font-size:13px;color:var(--bad);padding:10px 0;flex:0 0 auto}
+  .ghost{border:1px solid var(--line);background:#fff;border-radius:9px;
+         padding:12px 0;font-size:16px;color:var(--ink2);flex:1}
+  .row{display:flex;gap:7px;flex:0 0 auto}
+
+  /* 状态 pill */
+  .pill{display:inline-block;font-size:12.5px;padding:2px 9px;border-radius:11px;
+        background:var(--soft);color:var(--ink3)}
+  .pill.run{background:var(--okbg);color:var(--ok)}
+  .pill.warn{background:var(--warnbg);color:var(--warn)}
+  .pill.bad{background:var(--badbg);color:var(--bad)}
+
+  /* ── 屏② 任务库(照 v18)── */
+  /* 🔴🔴 2026-11-01 用户:「任务那页不是应该要整页滚动吗,跟插件一样。
+     运行时的任务似乎不需要内卷?」—— 对的。**列表不再自己滚了,整页滚。**
+
+     病根是这一条原来写的 `flex:0 1 auto`:`.body` 里**只有它会缩**
+     (别的块全是 0 0 auto),于是它成了整页唯一的泄压阀 —— 页面永远不滚,
+     内容一多全压在列表上。实测(预览,跑着 + 8 个任务):
+     列表内容 513px,**框被压到 69px**(离 min-height 60 只差 9px)= 一次看一行,
+     而 `.body` 的 scrollHeight 和 clientHeight 一样大,**整页一滚都不滚**。
+
+     ⚠️ 插件就是整页滚的:`content.js` 的 `.panel` 自己
+     `max-height:74vh;overflow-y:auto`,而 `task-panel.js` 里
+     **overflow / max-height 一个都没有**。它唯一的内滚是 `.detail`(封 200px),
+     那是展开的任务明细,不是列表。
+     ⚠️ 规矩收成一句:**一个界面一个滚动容器**(页面是 `.body`、抽屉是 `.sheetbody`),
+     里面的块一律自然高。唯一的例外是「长度不受我们控制的流」——
+     现在只有运行日志(`.log.run` 封 34vh,理由见下面那段,是真机量出来的)。 */
+  .listwrap{background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);flex:0 0 auto;min-height:60px;border:1px solid var(--line);
+            border-radius:11px;position:relative;overflow:hidden}
+  .list{padding:0 11px}
+  /* ⚠️ 空白【只长不缩】照旧:内容短的时候把「开始」顶到屏幕最底下;
+     内容一长它自己变 0,接着就是整页滚。两种情况同一条规则管。 */
+  .sp{flex:1 1 0;min-height:0}
+
+  /* 🔴 运行区的日志【必须封高】。
+     合屏之后主钮在最底下,日志一长就把「停止」顶出屏幕 ——
+     2026-10-27 真机实测:20 条日志时钮底 694px、可视区只有 690px,差 4px 就是按不到。
+     打样时按 2~3 行日志画的,而真日志每条常常折成两行,14 条就是 20+ 行。
+     封高之后整页高度固定,钮永远在;要翻旧的就在这个框里滚。 */
+  .log.run{max-height:34vh;overflow:auto;-webkit-overflow-scrolling:touch}
+
+  /* ── 过往运行日志的日子页签(打样 v45)──
+     ⚠️ 抽屉里那一份【不加 .run】—— 抽屉的滚动容器是 `.sheetbody`,
+        里面再封一层高 = 一个界面两个滚动容器(18.13)。自然高就对了。 */
+  .daypick{display:flex;gap:6px;flex-wrap:wrap;flex:0 0 auto}
+  .daypick span{font-size:12px;padding:3px 10px;border-radius:20px;
+                background:var(--soft);color:var(--ink3);
+                border:1px solid var(--line)}
+  .daypick span.on{background:var(--accbg);color:var(--acc);border-color:#cfe0ff}
+  .daypick span.none{opacity:.45}
+
+  /* ── 抽屉(打样 v38)──
+     ⚠️ 2026-11-08 起【只剩「过往运行日志」一样东西】。编辑任务搬出去变成一页了,
+        理由见上面 `body.编辑态` 那段。
+     ⚠️ 日志抽屉【没有输入框】,所以不吃键盘那个亏 —— 别顺手把它也改成页。
+     ⚠️ 浮在上面,**页面高度一点不变** —— 用户 2026-10-26 否掉「就地展开」就是因为
+        「点开任务时画面会拉长」。抽屉没有这个问题。
+     ⚠️ `position:fixed` 而不是 absolute:面板整个是 flex 柱子,
+        absolute 会相对某个莫名其妙的祖先定位。 */
+  #抽屉{position:fixed;inset:0;z-index:40;display:none}
+  #抽屉.on{display:block}
+  .dim{position:absolute;inset:0;background:rgba(15,23,42,.3)}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--soft);
+         border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(15,23,42,.2);
+         max-height:88%;display:flex;flex-direction:column}
+  .grab{width:34px;height:4px;border-radius:3px;background:var(--line);
+        margin:7px auto 0;flex:0 0 auto}
+  .sheethd{display:flex;align-items:center;gap:10px;padding:9px 13px;
+           border-bottom:1px solid var(--line);background:#fff;flex:0 0 auto}
+  .sheethd b{flex:1;font-size:15px}
+  .sheetbody{padding:11px;display:flex;flex-direction:column;gap:9px;
+             overflow:auto;flex:1;-webkit-overflow-scrolling:touch}
+  .item{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--line)}
+  .item:last-child{border-bottom:none}
+  .t1{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tag{font-size:11.5px;padding:2px 7px;border-radius:20px;display:inline-block;
+       background:var(--soft);color:var(--ink3);margin-right:4px}
+  .tag.acc{background:var(--accbg);color:var(--acc)}
+  .tag.bad{background:var(--badbg);color:var(--bad)}
+  .sm{border:1px solid var(--acc);color:var(--acc);background:var(--accbg);
+      border-radius:9px;padding:4px 11px;font-size:12.5px;flex:0 0 auto}
+  /* 灰掉的小钮:有毛病的任务、以及【跑着的时候】。一次只跑一个任务,别让人误触重开一轮 */
+  .sm.off{border-color:var(--line);color:var(--ink3);background:var(--soft)}
+  /* —— 任务行右边那一格的【状态】(打样 v47 方案 B,用户 2026-11-05 定的)——
+     🔴 这一格平时装的是「发」—— 一个**真能点的钮**。跑起来之后原地换个东西,
+        只要它还长得像钮,读出来就是「这个钮被按下去了」。用户原话:
+        「跟继续钮或完成钮颜色太近,以为是什么可以点的」—— 那之前是 `.sm.now`(实心蓝),
+        而实心蓝在这个 App 里只给主钮用(继续 / 完成 / 开始)。
+     → **没有框、没有底**,就不可能被当成钮。这条线在这个 App 里一直是:
+        **钮有边框,状态没有**(账号屏那些「有效」「不轮换」小标也是无边框的)。
+     ⚠️ 绿色是【跟顶上那个「跑」药丸对齐的】(`.pill.run` 同一对变量)——
+        一屏里说同一件事就用同一个颜色。而且绿色在这个 App 里**从来不是按钮**
+        (钮只有蓝和红),撞不上「可点」的联想。
+     ⚠️ 小圆点替「正在进行」说话。**别给它加动画** —— 列表里一个会动的点是噪音,
+        而且快照每 250 毫秒重绘一次,动画每次都会被打断重来。 */
+  .st{font-size:12px;color:var(--ok);flex:0 0 auto;white-space:nowrap}
+  .st.wait{color:var(--ink3)}
+  .st .dot{display:inline-block;width:5px;height:5px;border-radius:50%;
+           background:var(--ok);margin-right:4px;vertical-align:1px}
+  /* ⚠️ `.sm.now`(实心蓝)2026-11-05 删了 —— 它唯一的用处是任务行那个「跑着」,
+     而那个已经改成 `.st` 纯文字了(打样 v47 方案 B)。**两头一起拆**:
+     render 和 CSS 同时没,grep 两边都搜不着。
+     (页面屏那排页签的 `.tab.now` 是另一条规则,别混。) */
+  .fold{border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+        background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);
+        display:flex;align-items:center;gap:8px;font-size:13.5px;flex:0 0 auto}
+
+  /* 🔴 参数展开:这一行和下面那三块【连成一张卡】(打样 v52 方案 D)。
+     为什么要连:不连的话屏幕上是四个互不相干的盒子,看不出是从哪一行展开的
+     —— 用户 2026-11-10 的原话是「不太明白怎么缩起来」。
+     ⚠️ `margin-top:-8px` 是在抵消 `.body` 的 `gap:8px`。改 gap 的时候记得这儿。
+     ⚠️ 只作用在 `.foldbody` 的直接子块上 —— 不能用 `~`,
+        后面还跟着「参与轮换」那张 `.card`,会被误伤。 */
+  .fold.on{border-bottom-left-radius:0;border-bottom-right-radius:0;
+           border-bottom:none;box-shadow:none;background:var(--soft)}
+  .fold.on .k{font-weight:600;color:var(--ink)}
+  .foldbody{margin-top:-8px;display:flex;flex-direction:column;flex:0 0 auto}
+  .foldbody>.blk{border-radius:0;border-top:none;box-shadow:none;margin:0}
+  .foldbody>.blk+.blk{border-top:1px solid var(--line)}
+  .foldbody>.blk:last-child{border-bottom-left-radius:11px;
+                            border-bottom-right-radius:11px;
+                            box-shadow:0 1px 2px rgba(16,24,40,.05)}
+  .fold .k{color:var(--ink3);width:52px;flex:0 0 auto}   /* 两个折叠对齐,都 52px */
+  .ck2{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);
+       flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+       font-size:11px;color:#fff}
+  .ck2.on{background:var(--acc);border-color:var(--acc)}
+  .tbtn.pick{color:var(--ink3)}
+  .tbtn.pick.on{color:var(--acc);background:var(--accbg);border-radius:20px;padding:2px 9px;margin:-2px -3px}
+
+  /* ── 屏③ 编辑器(照 v22)── */
+  .fr{display:flex;align-items:center;gap:8px;flex:0 0 auto;flex-wrap:wrap}
+  .lb{font-size:13.5px;color:var(--ink2);flex:0 0 auto}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:0 0 auto}
+  .seg div{padding:5px 15px;font-size:13px;color:var(--ink2)}
+  .seg div.on{background:var(--acc);color:#fff}
+  .inp{border:1px solid var(--line);border-radius:8px;padding:7px 9px;
+       font-size:13.5px;color:var(--ink);background:#fff;min-width:0;font-family:inherit}
+  .inp:focus{outline:none;border-color:var(--acc)}
+  /* ── 「目标页面」的剧集直通链(mockup v30 方案 D1)──
+     交互:一个控件走到底。清单最后一项是「✎ 自己填…」,挑它就变输入框。
+     ⚠️ 列表【自己画】,不用 <select> —— 原生 select 一点开弹的是安卓系统那个
+        方方正正的列表,CSS 一点都改不动,用户 2026-10-25 说「有点俗」就是指它。
+     ⚠️ 圆角/间距刻意跟卡片、账号卡、冷却框同一套 —— 不然像别的 App 的零件。*/
+  .wrap{position:relative;flex:1;min-width:0}
+  /* 73 = 钮宽 61 + 右边距 4 + 8 留白。实测 62 时文字会压到钮底下 */
+  .wrap input.inp{width:100%;padding-right:73px}
+  .trig{width:100%;text-align:left;background:#fff;border:1px solid var(--line);
+        border-radius:10px;padding:7px 28px 7px 11px;font-family:inherit;position:relative}
+  .trig .nm{font-size:13.5px;color:var(--ink);display:block}
+  .trig .u{font-size:11.5px;color:var(--ink3);display:block}
+  .trig::after{content:'';position:absolute;right:11px;top:50%;width:6px;height:6px;
+      border-right:1.5px solid var(--ink3);border-bottom:1.5px solid var(--ink3);
+      transform:translateY(-70%) rotate(45deg)}
+  .pop{position:absolute;left:0;right:0;top:calc(100% + 6px);background:#fff;
+       border:1px solid var(--line);border-radius:14px;z-index:9;padding:5px;
+       box-shadow:0 12px 30px rgba(15,23,42,.13)}
+  .pop .it{padding:8px 10px;border-radius:9px}
+  /* 当前选中那条染蓝 —— 打开就知道现在是哪个 */
+  .pop .it.on{background:var(--accbg)}
+  .pop .nm{font-size:13.5px;color:var(--ink);display:block}
+  .pop .u{font-size:11.5px;color:var(--ink3);display:block}
+  .pop .sep{height:1px;background:var(--line);margin:5px 9px}
+  .pop .self{padding:8px 10px;border-radius:9px;font-size:13px;color:var(--acc)}
+  .back{position:absolute;right:4px;top:50%;transform:translateY(-50%);
+        border:0;background:var(--accbg);color:var(--acc);border-radius:7px;
+        padding:4px 8px;font-size:11.5px;line-height:1;font-family:inherit}
+  .num{width:62px;text-align:center}
+  .grow{flex:1}
+  .ta{width:100%;min-height:96px;resize:vertical;line-height:1.7}
+  /* ⭐ 试连那份【全文】:可滚、可选中、可复制。封高 34vh,理由和 .log.run 一样 ——
+        不封的话 5000 行会把下面的「保存」顶出屏幕。 */
+  /* ⚠️ textarea 的高度【不跟内容走】,所以 max-height 单给是没用的(量过:
+        只给 min/max 它就停在 min-height,120px 一次只看得到 5 行)。
+        要给一个真的 height。26vh 是折中:够看一屏,又不把「保存」顶太远。 */
+  /* ⚠️ 两个坑一起踩过(2026-11-10 在 预览.py 上量的):
+        ① textarea 的高度【不跟内容走】,只给 min/max 它就停在 min-height
+           —— 120px 一次只看得到 5 行。要给一个真的 height。
+        ② 抽屉是 flex 列,这个框会被挤回 min-height,所以要 `flex:0 0 auto`。 */
+  .ta.pv{flex:0 0 auto;height:200px;max-height:34vh;resize:vertical;
+         font:12px/1.7 ui-monospace,monospace;color:var(--ink2);background:var(--bg)}
+  /* 🔴 勾选那一整行都是热区(2026-11-10)。原来只有那个 16x16 的 .ck2 带
+        `data-勾字段`,点在字上 `closest()` 往上找不到 = 什么都不会发生,
+        用户报「启用冷却好像不可选」就是这个。min-height 44 是拇指的下限。 */
+  .ckrow{min-height:44px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  /* ⭐ 悬浮窗那一块 —— 它就是 `#横幅` 本身,只是内容多了几行(2026-11-10)。
+     🔴 **住在 `#横幅` 里,不是塞进 `.body`。** 理由是「页面」屏:
+        那一屏的内容区是**给原生浏览器盖着的**,画在里面什么都看不见
+        (`收尾()` 里 `地基塌了条` 为这个专门把页面屏排除了)。
+        `#横幅` 在内容区外面,所以账号/页面/任务三屏天然长一个样。
+     ⚠️ 原来这块是 `.暖通栏`、靠负边距塞在 `.body` 里的,只有账号屏画 ——
+        用户 2026-11-10:「账号屏/页面/任务 的黄条 都一致」。 */
+  .banner.浮窗{padding:10px 13px;border-bottom:1px solid var(--warnline)}
+  .banner.浮窗 .hint{color:#8a7340}
+  .banner.浮窗 .lb{color:#6b5418}
+  /* ⭐ 受限设置收成的那一行入口(照「小菇爱表白」checkin.js 的 `受限标题`)。
+     ⚠️ 用蓝 —— 这个面板里**蓝色一律等于「能点」**(见 .big 那段注释)。
+        暖底上摆一行蓝字看着有点外来,但「能不能点」比「配不配色」要紧。
+     ⚠️ min-height 44:和那几个勾一样,拇指的下限。 */
+  .折{display:flex;align-items:center;min-height:44px;cursor:pointer;
+      font-size:12.5px;color:var(--acc);-webkit-tap-highlight-color:transparent}
+  .blk{background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);border:1px solid var(--line);border-radius:10px;padding:10px 11px;
+       display:flex;flex-direction:column;gap:8px;flex:0 0 auto;position:relative}
+  /* ⚠️ 冷却关掉时【置灰】不是 hidden —— 不跳版,而且看得见自己关了什么(UI决策.md §3) */
+  .blk.off{opacity:.45;pointer-events:none}
+  .bt{position:absolute;top:-8px;left:10px;background:#fff;padding:0 6px;
+      font-size:11px;color:var(--ink3)}
+  .bt.warm{color:var(--warn)}
+
+  /* ── 账号行(照 v21 量过的尺寸,别改)── */
+  /* ⚠️ background 是 2026-11-09 补的 —— 页面退成浅灰之后,
+     坐在页面上却没有底色的块会【变成灰的】,比白底白卡更糊。
+     漏过一次:v6 发出去才在设备上扫出来(.prow/.entry/.blk 三个)。 */
+  .prow{background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);border:1px solid var(--line);border-radius:10px;padding:8px 10px;
+        display:flex;align-items:center;gap:9px;flex:0 0 auto}
+  .prow.norot{background:#fafafa}
+  .prow.run{border-color:var(--acc);background:#f7faff}
+  /* ⚠️⚠️ 2026-10-30 头像【去掉了】—— 用户:「我觉得不必显示头像了吧,太占位了」。
+     它只有两个用处,两个都是重复的:
+       · 名字首字 —— 名字就在右边 3px 处
+       · 跑不了时变红 —— 徽章已经写着「失效/任务失败」,整行底色也会变灰(.prow.norot)
+     省下 39px(30 头像 + 9 gap)全给摘要行,那一行一直在打架(253 → 292px)。
+     ⚠️ v21 当初写死这 30px 是为了「切编辑轮换时名字起始 x 不变、整行不横跳」。
+
+     ⚠️⚠️ 2026-11-01 用户:「39px 那个治一下」—— 横跳治了,但【不是把 30px 加回来】。
+        那一格现在**两个模式都有,而且是同一条 CSS**(下面这行),宽度不可能再岔开:
+          · 视图模式 = ▸/▾ (从名字行里搬出来的,本来就在最左边,只是没有自己的格子)
+          · 编辑模式 = 勾选框
+        宽度按**勾选框的真尺寸** 20x20 定死 20px(原来 30px 是头像的尺寸,
+        勾选框在里面两边各空 5px)。所以代价从 39px 降到 29px(20 + 9 gap),
+        而且换来的是「▸ 有了固定的一列」—— 名字行少了一个会动的前缀。
+        ⚠️ 勾选框热区没变(`data-勾` 一直在 20x20 的 .ck 上,不在格子上);
+           离右边那一格反而远了 5px(v20 量的中心距 248px -> 253px)。
+           ⚠️ 2026-11-05 右边那一格从 ⠿ 换成 ▲▼ 了,这个距离跟着变小
+           (▲ 的中心比 ⠿ 靠左约 50px)—— 但「两热区离得远」这件事还是靠这一格撑着,
+           改左边这 20px 之前先看一眼右边现在有多宽。 */
+  /* ⚠️ 这一行是「两个模式名字不横跳」的【唯一】依据 —— 改宽度就两边一起改,没有第二处 */
+  /* ⚠️ 对齐也写在这一条里 —— ▸ 和勾选框要落在【同一个像素】上,切模式时那一格一动不动。
+     量过:名字行在行内 y=9、高 20,勾选框也正好 20x20,所以
+     stretch + flex-start 让两个都压在名字那一行上(整行是两行高 —— 摘要行在下面,
+     居中会让它们掉进两行中间的缝里,而且两个模式掉的位置还不一样)。 */
+  .slot{width:20px;flex:0 0 auto;display:flex;align-self:stretch;
+        align-items:flex-start;justify-content:center}
+  .slot.tri{line-height:20px;font-size:13.5px}
+  .ck{width:20px;height:20px;border-radius:6px;border:1.5px solid #cfd4db;
+      display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff}
+  .ck.on{background:var(--acc);border-color:var(--acc)}
+  .meta{flex:1;min-width:0}
+  .name{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* ⚠️ 账号行专用。普通 .name 是「整行一起截」—— 那样截掉的是【尾巴上的徽章】,
+     而徽章正是诊断本身(「信息库破损,须重启」比名字要紧得多)。
+     2026-10-29 实测:名字长 + 任务运行中 + 长徽章 = 徽章被切掉 40px。
+     改成 flex 之后截的是名字,徽章永远完整 —— 名字猜得出来,徽章猜不出来。 */
+  .name.pn{display:flex;align-items:center;gap:4px}
+  .name.pn>.nm{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .name.pn>.badge{flex:0 0 auto}
+  /* ⚠️⚠️ 2026-10-29 用户:「每个帐号都应该显示状态,即使『任务失败』也应该要显示」。
+     原来是 nowrap + ellipsis 单行,而 ellipsis 从尾巴切 —— 切掉的正好是
+     排在最后的「任务失败(原因)」和「今日 N 条」。量过:最糟那行要 327px,
+     行宽只有 253px。**不能靠挪顺序解决** —— 挪谁到前面都等于牺牲另一个,
+     而状态和失败原因用户两个都要。所以改成最多折 2 行(506px 预算,
+     实测最长的真原因「服务器回的不是 JSON」也只占半行多)。
+     ⚠️ 留着 line-clamp 的封顶:`页面加载失败:` 后面接的 e.原因 长度不受我们控制,
+     不封顶的话一个烂 URL 能把这一行撑成五行、整个列表走形。超了照样打省略号。
+     ⚠️ overflow-wrap:anywhere 是给 ASCII 原因(net::ERR_… 这种没空格的)用的,
+     中文本来就能随处断。 */
+  .rowinfo{font-size:12px;color:var(--ink3);margin-top:1px;line-height:1.45;
+           display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+           overflow:hidden;overflow-wrap:anywhere}
+  /* ── 设置屏:一行入口(打样 v48 方案 C)──
+     ⚠️ 右边那一格是【现状】不是说明:用户下来是找「我那个值现在是几」的,
+        不是来读一句介绍的。空着也行(维护那一行就没有)。 */
+  .entry{background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.05);display:flex;align-items:center;gap:8px;border:1px solid var(--line);
+         border-radius:11px;padding:11px;flex:0 0 auto}
+  .et{font-size:14px;flex:1;min-width:0}
+  .ev{font-size:12.5px;color:var(--ink3);white-space:nowrap}
+  .ea{font-size:14px;color:var(--ink3)}
+
+  /* ── 版本信息页 ──
+     🔴 抄的是小菇爱表白那一页的约定,理由它自己写着:这一页上
+        `1.3` / `4` / `v2` / `11-09 14:22` 挨着放,**光看数字分不清谁是谁**。
+        所以给两道保险:
+          版本号 → 蓝 + 后面跟一个「版」字
+          时间   → 另一个色 + 前面带一个「于」字
+     ⚠️ 紫色是这个 App 里【唯一】不表示「能点」的强调色。蓝 = 能点这条规矩
+        在日志那边记过(18.14),版本号用蓝是因为它本来就在卡里、周围没有钮;
+        时间要是也用蓝,一行里两种蓝就又分不清了。 */
+  .vhd{font-weight:600;color:var(--ink);font-size:13.5px}
+  .vline{font-size:13.5px;line-height:1.95}
+  .vsm{font-size:12.5px}
+  .vn{font-weight:700;color:var(--acc)}
+  .vt{color:var(--time)}
+  .vg{color:var(--ink3)}
+  .vok{color:var(--ok)}
+  .vbad{color:var(--bad)}
+
+  .badge{font-size:11px;padding:1px 6px;border-radius:10px;background:var(--accbg);color:var(--acc)}
+  .badge.dead{background:var(--badbg);color:var(--bad)}
+  .badge.norot{background:var(--soft);color:var(--ink3)}
+  .ops button{border:1px solid var(--line);background:#fff;border-radius:7px;
+              padding:6px 11px;font-size:13px;color:var(--ink2)}
+  .ops button.hot{border-color:var(--acc);color:var(--acc);background:var(--accbg)}
+  /* —— 换顺序:▲▼(照插件 content.js moveProfile)——————————
+     🔴 2026-11-05 这里【原来是 ⠿ 拖动】。v20 当初选它是为了「两个热区离得远」:
+        ⠿ 在最右、勾选框在最左,中心距 253px;▲▼ 挤在右边只有 48px,拇指一盖两个都中。
+        **那条顾虑是真的,但它挡住的是一个从来没成功过的功能** —— 拖动为什么必炸,
+        实拍证据写在 `画账号` 里那段注释上。
+     —> 现在的办法是把两个钮做【够大 + 留缝】:42x36 + 8px 缝 = 中心距 50px,各自有边框。
+        按错只发生在中间那几个像素上,而且按错 = 反方向挪一格,再点一下就回来;
+        拖动那种错是「顺序根本没存下来、行还卡在半路」。两种错不是一个量级。
+     ⚠️ 头一行的 ▲ / 末一行的 ▼ 是灰的 —— 这【不算】犯「不留灰钮」那条:
+        那条禁的是「点了没反应、又不说为什么」,而这两个的理由明摆着(它已经是第一个了)。
+        真拿掉的话右边那一格会忽宽忽窄,整列对不齐。 */
+  .reord{display:flex;gap:8px;flex:0 0 auto}
+  .reord button{width:42px;height:36px;border:1px solid var(--line);background:#fff;
+                border-radius:8px;font-size:12px;color:var(--ink2);line-height:1;
+                display:flex;align-items:center;justify-content:center}
+  .reord button:disabled{opacity:.3}
+
+  /* 展开的明细 */
+  .detail{border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;
+          margin-top:-7px;padding:9px 11px 10px;background:var(--soft);flex:0 0 auto}
+  .bars{display:flex;align-items:flex-end;gap:5px;height:42px;margin:7px 0 3px;position:relative}
+  .bar{flex:1;background:var(--acc);border-radius:2px 2px 0 0;min-height:2px}
+  .bar.zero{background:#d9dde3}
+  .goal{position:absolute;left:0;right:0;border-top:1px dashed #b6bcc5}
+  .barx{display:flex;gap:5px;font-size:9.5px;color:var(--ink3)}
+  .barx span{flex:1;text-align:center}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1 id="题">小菇爱评论</h1>
+  <span class="tbtn mute" id="右1"></span>
+  <span class="tbtn" id="右2"></span>
+</div>
+
+<div class="tabs" id="窗口条"></div>
+
+<div class="banner" id="横幅"></div>
+
+<!-- 跑的时候才出现。⚠️ 它一出现顶边就厚了 —— 报留边 里必须把它算进去,
+     不然原生给浏览器留的边不够,浏览器会把它盖住(窗口条当年就是这么踩的)。 -->
+<div class="runbar" id="跑条"></div>
+
+<div class="body" id="内容"></div>
+
+<!-- 抽屉:编辑任务 / 看这一趟跑哪几个,都从这里升起来(打样 v38)。
+     ⚠️ 浮在上面,【页面高度一点不变】—— 用户 2026-10-26 否掉「就地展开」的理由就是
+        「点开任务时画面会拉长,感觉不太对劲」。 -->
+<div id="抽屉"></div>
+
+<!-- ⚠️ 2026-10-27:「运行」没了,并进「任务」(打样 v32/v38)。
+     理由:运行屏的「开始」跑的是勾选,而勾选只在任务屏看得到 ——
+     在一个看不见后果的地方按开始。两屏又从不同时有用,合成一页按状态换内容。 -->
+<!-- 🔴 2026-11-10 顺序改成「账号 → 页面 → 任务 → 设置」(用户指定)。
+     原来是「任务 → 账号 → 页面 → 设置」。读起来是一条流水:
+     先把号准备好 -> 看看页面 -> 再去跑任务 -> 设置垫底。
+  ⚠️ `class="on"` 写在「账号」那一格上,但那只是**首帧**的样子 ——
+     开机会 `换底栏(当前页)` 把它对齐到【上次停留的那一屏】(见 `读上次的屏`)。
+     「账号」只是**第一次打开**(没存过记忆)时的落点。
+  ⚠️ 顺序和默认屏是两件事,分开改的,别以为动一个另一个会跟着动。
+  ⚠️ 每格认的是 `data-页`,不是位置,所以**派发那边一个字都不用改**。 -->
+<div class="nav" id="底栏">
+  <div class="on" data-页="账号"><b>◍</b>账号</div>
+  <div data-页="页面"><b>◫</b>页面</div>
+  <div data-页="任务"><b>☰</b>任务</div>
+  <div data-页="设置"><b>⚙</b>设置</div>
+</div>
+
+<script>
+'use strict';
+
+var 快照 = null;
+/**
+ * 🔴 开机落哪一屏(用户 2026-11-10 定的):
+ *   · **第一次打开**(没存过)-> 「账号」
+ *   · 其他时候 -> **上次停留的那一屏**
+ *
+ * 存在面板自己的 `localStorage` 里 —— 它是「这个人上次看到哪儿」,
+ * **不是业务事实**,所以不进状态机也不进快照(和 `设置页` / `弹层开的是`
+ * 同一类,见 18.7)。原生一行都不用动 = 纯层 2。
+ *
+ * ⚠️ **读回来必须过白名单。** 那个字符串躺在用户设备上,可能是旧版本留下的屏名
+ *    (比如早就并掉的「运行」屏)。认不出就当没存过、落回账号 ——
+ *    否则一个过期字符串能把面板钉在一个画不出来的屏上,而且**重装才好**。
+ * ⚠️ **整段 try 包住**:存储被禁 / 配额满 / 隐私模式,`localStorage` 都会抛。
+ *    抛了就退化成「每次都落账号」,和没这个功能一样,不会崩。
+ *    (`主界面` 那边 `setDomStorageEnabled(true)` 是开着的,查过。)
+ *
+ * 🔴🔴 **它活不活得过重启,取决于【怎么死的】** —— 2026-11-10 在模拟器上
+ *    (真 `https://panel.local` 源)逐条试出来的,别凭直觉改:
+ *
+ *    | 怎么退出 | 记忆还在吗 |
+ *    |---|---|
+ *    | 返回键退到桌面(用户日常走的那条) | ✅ **在**。Activity `onDestroy` 里
+ *      `面板.destroy()` 会把 DOM storage 刷下去 |
+ *    | `am force-stop` / 设置屏那个「重启 App」(`killProcess`) | ❌ **没了** |
+ *
+ *    后者是**硬杀**,异步的 DOM storage 写还没落盘就没了 ——
+ *    和铁律 20 那个「force-stop 打断 cookie 写盘」是同一个物理。
+ *    ⚠️ **认了,不治。** 丢了的后果只是「这次落回账号」,
+ *    也就是退回这个功能存在之前的样子;而要治得在 `重启App` 那条路上
+ *    先把面板 destroy 掉再杀进程 = 层 1 + 一条新的时序依赖,
+ *    为一个「下次开在哪一屏」不值得。
+ */
+var 认得的屏 = ['任务', '账号', '页面', '设置'];
+var 屏记忆键 = 'qqc.当前页';
+
+function 读上次的屏() {
+  try {
+    var v = localStorage.getItem(屏记忆键);
+    return 认得的屏.indexOf(v) >= 0 ? v : null;
+  } catch (e) { return null; }
+}
+
+var 当前页 = 读上次的屏() || '账号';
+var 编辑轮换 = false;      // 屏④ 的两态(UI决策.md §2)
+/* ⭐ 进「编辑轮换」那一刻的底片 = [{id, 参与}]，**只给「取消」用**。
+   ⚠️ 为什么要底片:这个模式下每一下都【立即落盘】(勾、▲▼ 都是,照插件 moveProfile),
+      盘上早就改完了。「取消」要是只关掉模式,那就是个骗人的钮。
+   ⚠️ 只在 `进编辑` 那一下拍。别的出口(底栏切屏、「去账号」)都是**留下改动**退出,
+      等于按了「完成」—— 底片留着没关系,下次进来会重拍。
+   ⚠️ 只记 id 和「参不参与」两样 —— 这个模式里能改的就这两样(顺序 = 这个数组的次序)。
+      别顺手把整行存进来:那样「取消」会把体检结果、掉线判定这些**引擎现查的东西**一起倒回去。 */
+var 轮换原样 = null;
+// ▼ 那个弹层开着没。⚠️ 只是面板的局部状态,不进状态机 —— 它不是业务事实。
+// 哪个字段的弹层开着(null = 都没开)。⚠️ 一次只许开一个 —— 两个叠着没法点。
+var 弹层开的是 = null;
+// 每个字段:手填还是挑。null = 还没表过态(渲染时按「值在不在清单里」现判),
+// true/false = 用户点过「✎ 自己填」或「↩ 挑」,以他说的为准。
+var 手填的 = {};
+// ⚠️ 2026-11-08:这行原来写着「抽屉里装的是…编辑中 则装编辑器」—— 两句都过期了。
+//    抽屉现在【只装过往运行日志】,编辑器是任务屏下面的一页(见 body.编辑态 那段 CSS)。
+// ⚠️ 2026-11-04:这儿原来还有 `var 看这趟` —— 「这一轮跑这些」抽屉的开关。
+//    那个抽屉连同它的入口一起删了(见 画运行区),理由:10-27 之后页面上
+//    本来就有完整任务列表,抽屉唯一多说的那一句已经变成列表里的「排队」标。
+// 抽屉里装的是「过往运行日志」吗(打样 v45)。⚠️ 是面板局部状态,
+//    但它【有个远端的影子】:盘上那三天读出来放在 快照.过往日志 里。
+//    收抽屉时要记得发「收过往日志」把那边清掉,见 派发。
+var 看日志 = false;
+// 🔴 悬浮窗给了没有。原生每次 推权限() 会更新它(window.提示)。
+//    ⚠️ 这是**整个 App 唯一必须用户去系统设置里开的权限** —— 2026-11-10 实测:
+//       通知收掉之后前台服务照样 isForeground=true(manifest 里原来那句
+//       「不给的话前台服务起不来」是错的,已改),「安装未知应用」只有自助更新才要。
+var 缺悬浮窗 = false;
+// 受限设置那段展开没有。**默认收起** —— 多数手机根本不需要它
+// (表白那边的结论:「只有开关点不动时才要」),摊开来反而把真正要做的那件事挤下去。
+// ⚠️ 表白那边还会「真检测到被挡时自动展开一次」。我们这头**检测不了** ——
+//    那要读 appop,得走原生 = 层 1。所以只能等用户自己点。
+var 受限展开 = false;
+// ⭐ 原生报的「这个包是**从下载的文件装的**」(1.6 起,见 主界面.下载文件装的)。
+//    🔴 名字里的「挡着」是口语 —— 它**不是**「现在还挡着」:
+//       普通应用查不了那个 appop(实测 SecurityException),只问得到「怎么装的」,
+//       而装法在用户解锁之后**还是 3**。所以措辞只敢说「多半要先解锁一次」。
+//    ⚠️ 旧原生没有这一发,它永远是 false —— 那就退回老样子:那一行收着,用户自己点开。
+//    ⚠️ 这一段只在**缺悬浮窗**时才画得出来,所以解锁并开好权限的人根本看不到它。
+var 受限挡着 = false;
+// ⚠️ **只自动摊开一次。** 用户把它收起来 = 他知道了,下一拍再给他摊开是跟他较劲。
+var 摊过受限 = false;
+var 展开的 = null;         // 点名字就地展开的那个号,不跳详情页
+var 多选中 = false;        // 屏② 的「多选组队」—— 是【模式】不是块
+var 参数开 = false;        // 屏② 参数折叠
+var 编辑中 = null;         // 屏③:任务 id,或 'new';null = 不在编辑器里
+var 草稿 = null;           // 编辑器里那份还没存的任务
+var 版本信息 = '—';        // 原生推过来的:跑的是内置版还是远程 vN
+
+// ── 原生 → 这里 ────────────────────────────────────────
+// 实测(DESIGN §18):就算这个 WebView 被后台冻住,这一路照样通。
+window.画 = function (json) {
+  try { 快照 = JSON.parse(json); } catch (e) { return; }
+  // ⚠️ 这儿也要叫一次:基线要的是 快照.开机于,而 版本() 那条线可能比第一份快照先到。
+  看看要不要重启();
+  接任务正文();
+  贴上正在跑的那个();
+  重绘();
+};
+
+/**
+ * 借来的【任务正文】到了 —— 填进草稿(2026-11-11)。
+ *
+ * 快照里的 任务库 不带 `bulletList`(几千行不该每 250 毫秒搬一遍,见 rotation.js
+ * 的 瘦任务库),所以开编辑器时单独借一份:`要任务正文` → 这儿接住。
+ *
+ * ⚠️⚠️ 必须在 `重绘()` 之【前】叫。重绘 开头会 收草稿,而「正在取…」那会儿编辑区
+ *    **刻意没画出来**,所以 收草稿 碰不到 bulletList;填完这一拍才第一次画出那个
+ *    textarea,里头就是真货。顺序反了 = 先画出一个空框再被读成空。
+ * ⚠️ 三道闸,第三道最要紧:草稿里**已经有**正文就不许盖 —— 人可能已经在改了,
+ *    或者刚点过「编辑评论池」(那份是从评论池搬来的),晚到的一份不能把它顶掉。
+ */
+function 接任务正文() {
+  if (!编辑中 || !草稿) return;
+  var 正 = 快照 && 快照.任务正文;
+  if (!正 || 正.id !== 编辑中) return;      // 不是这个任务的(开了 A 又换 B)
+  if (草稿.bulletList !== undefined) return;
+  草稿.bulletList = (正.行们 || []).slice();
+}
+
+/**
+ * 【已经待在「页面」屏】的时候跑起来了 —— 自己贴上去。
+ *
+ * ⚠️ 底栏那个 handler 只在【切屏那一下】发意图。你要是本来就停在页面屏上,
+ *    然后在别处按了开跑(或者定时起跑),没有任何人会再点一次底栏 ——
+ *    结果就是跑着跑着这一屏还是空态。2026-10-24 在模拟器上当场撞到。
+ * ⚠️ 这不是「挑谁」那种决策(挑谁归 rotation.js),只是把「我在页面屏」这个
+ *    面板才知道的事实报过去。号id 给空,让状态机自己挑。
+ * ⚠️ 要上闩 —— 快照每 250 毫秒来一份,不拦的话一秒发四遍。
+ */
+var 上次贴 = 0;
+function 贴上正在跑的那个() {
+  if (当前页 !== '页面' || !在跑()) return;
+  if (快照.浏览中的号) return;                 // 已经贴着了
+  if (Date.now() - 上次贴 < 3000) return;      // 开窗要几秒,别催
+  上次贴 = Date.now();
+  发意图('开浏览器', { 号id: '' });
+}
+
+// ── 这里 → 原生 ────────────────────────────────────────
+function 发意图(型, 参) {
+  var m = Object.assign({ 型: 型 }, 参 || {});
+  if (window.安卓 && 安卓.意图) 安卓.意图(JSON.stringify(m));
+  else console.log('[没有原生桥]', m);   // 在电脑浏览器里打开时走这条
+}
+
+// ── 小工具 ─────────────────────────────────────────────
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c];
+  });
+}
+function 时分秒(t) {
+  var d = new Date(t), p = function (n) { return String(n).padStart(2, '0'); };
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+// ⚠️ 别只按 MB 取整。新仓才几百 KB,toFixed(0) 会显示成「0MB」,
+//    看着像量不到 —— 2026-09-24 我自己被这个显示骗了一轮,去查了半天 量仓()。
+function MB(n) {
+  if (!n) return '—';
+  if (n < 1048576) return Math.round(n / 1024) + 'KB';
+  return (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + 'MB';
+}
+/**
+ * number 框的 `min` / `max`。
+ *
+ * 🔴 范围【只有状态机那一处定义】(`窗口上限范围` / `备份每隔范围`),经快照送过来。
+ *    界面自己再写一份,改的时候只会改一边 —— 症状是「界面让你填 1、
+ *    一存又变回 5」,看着像坏了,其实是两份数岔开了。
+ * ⚠️ 拿不到就【不写 min/max】,**不在这儿补一份兜底的数** —— 补了就是第二份定义。
+ *    不写的后果只是浏览器不帮着拦一道,而状态机 `case '改参数'` 本来就会
+ *    Math.max/min 夹一道(它从不信前端:parseInt 失败给 0,0 个窗等于永远开不了窗)。
+ *    (什么时候会拿不到:`资源.java` 的「退回内置」是**按文件**的 ——
+ *     远程的新面板配上内置的老 rotation.js,快照里就没这个字段。)
+ */
+function 范围属性(范) {
+  return 范 ? ' min="' + 范.最少 + '" max="' + 范.最多 + '"' : '';
+}
+function 号们() { return (快照 && 快照.号们) || []; }
+function 在跑() { return !!(快照 && 快照.当前状态 && 快照.当前状态 !== '停'); }
+/**
+ * 「跑到哪了」—— 页面屏顶栏右边那一句。
+ * 格式:状态 · 第 N 轮 · 本段已发/本段目标。空间很窄,只放这三件。
+ * ⚠️ 轮数不限时不写「第 N / M 轮」,写「第 N 轮」—— 不限轮时 M 是 0,写出来是「第 2/0 轮」。
+ */
+function 跑到哪了() {
+  var k = 快照 || {};
+  var 出 = [k.当前状态 || '跑'];
+  if (k.轮) 出.push('第 ' + k.轮 + (k.共几轮 > 0 ? '/' + k.共几轮 : '') + ' 轮');
+  if (k.本段目标 > 0) 出.push((k.本段已发 || 0) + '/' + k.本段目标);
+  return 出.join(' · ');
+}
+
+// ══ 屏① 运行 ══════════════════════════════════════════
+/**
+ * 运行区 —— 合屏之后「跑着」那一半(打样 v38)。
+ * ⚠️ 只在 `在跑()` 时画。没跑的时候这一页是 `画任务库()`。
+ */
+function 画运行区() {
+  var s = 快照, h = '';
+  var 态 = s.当前状态;
+  var 色 = 态 === '停' ? '' : (态 === '限流暂停' || 态 === '冷却中') ? ' warn'
+         : 态 === '跑' ? ' run' : ' warn';
+
+  h += '<div class="card">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+     + '<span class="pill' + 色 + '">' + esc(态) + '</span>'
+     + (s.干跑 ? '<span class="pill warn">干跑·不真发</span>' : '')
+     + '<span style="flex:1"></span></div>';
+  // ⚠️ 2026-11-01 「第 N 轮」从这个角上搬进下面那条 kv 了 —— 用户要的是四个数
+  //    (共几轮 / 第几轮 / 共几号 / 第几个号),这个角上挤不下(左边还有状态和干跑两个药丸),
+  //    而且留在这儿就和 kv 那条重复 —— 同一件事说两遍,改一处忘一处(铁律 8)。
+
+  if (s.当前号名) {
+    h += '<div class="kv"><span>当前</span><span style="display:flex;align-items:center;gap:6px">'
+       + '<span class="name" style="flex:1;min-width:0">' + esc(s.当前号名) + ' · '
+       + esc(s.当前任务名 || '') + '  <b>' + s.本段已发 + '</b>'
+       + (s.本段目标 ? '/' + s.本段目标 : '') + '</span>'
+       // 换号是「这个号不行了,下一个」的手动出口。⚠️ 不标掉线,只是跳过这一趟
+       + '<span class="sm" data-意图="跳过当前号" style="font-size:11.5px;padding:3px 9px">跳过</span>'
+       + '</span></div>';
+  } else if (s.上一段成绩) {
+    // 换段那一刻 本段已发 被清零,界面会从「24/25」跳「0/25」看著像坏了。
+    // 插件踩过这个坑,专门留一份上一段成绩顶空窗期。
+    h += kv('上一段', esc(s.上一段成绩.任务) + ' 发了 ' + s.上一段成绩.条数 + ' 条');
+  }
+  // ⭐ 2026-11-01 用户要的四个数:共几轮 / 第几轮 / 共几号 / 第几个号。
+  //    原话:「没有显示目前是全部几轮几号,现在是第几轮换中全部几号的第几个号」。
+  // ⚠️ `当前号名` 只答得出「是谁」,答不出「走到哪了」—— 三个号跑到第几个,
+  //    原来整屏没有任何地方说得出来(日志里要自己数「换号」几次)。
+  // ⚠️ 轮数 0 = 不限,这时候别打「/ 0」—— 直接说「不限轮数」。
+  var 轮话 = s.共几轮 ? ('第 ' + s.轮 + '/' + s.共几轮 + ' 轮')
+                      : ('第 ' + s.轮 + ' 轮 · 不限轮数');
+  h += kv('轮次', 轮话 + (s.共几号 ? ' · 第 ' + s.号第几 + '/' + s.共几号 + ' 个号' : ''));
+  h += kv('累计已发', s.累计已发);
+  if (s.这条卡在) h += kv('这条', '走到「' + esc(s.这条卡在) + '」');
+  // ⚠️ 暂停中要当场写「已暂停」,不能等那个每秒的 setInterval 来补 ——
+  //    差那一秒的话,按下「暂停」之后倒计时还会再跳一下,看着像没停住。
+  h += '<div class="kv"><span>下一条</span><span id="倒计时"'
+     + (s.手动暂停 ? ' style="color:var(--warn)">已暂停' : '>—') + '</span></div>';
+  if (s.为什么停) h += kv('为什么停', esc(s.为什么停));
+  h += '</div>';
+
+  // 限流暂停:状态 + 说明 + 立刻重试(UI决策.md §4,图 v23-c)
+  if (s.恢复于 && s.恢复于 > Date.now()) {
+    h += '<div class="card" style="border-color:#f0d9a8;background:var(--warnbg)">'
+       + '<div class="hint" style="color:#7a6224">一圈号都撞上限流了,先歇一会儿。'
+       + '<b>没有把号标成失效</b> —— 限流是暂时的。</div>'
+       + '<div class="row" style="margin-top:8px">'
+       + '<button class="ghost" data-意图="立刻重试">立刻重试</button></div></div>';
+  }
+
+  // ⚠️⚠️ 2026-11-01 「参与轮换」那一条【从这儿搬走了】—— 用户:「帐号摘要区放到参数区最下面就好」。
+  //    现在它只在 画任务库 里出一次(参数那一块的底下),跑着和停着**共用同一份**。
+  // ⭐ 顺手治掉一个 CLAUDE.md 里记着的老毛病:这一条原来**两处各画一份**
+  //    (这儿读 `s.参与里掉线几个`、那儿读 `快照.参与里掉线几个`),
+  //    改白话那天只改了后面那一份,真机上才看见 —— 两处定义,迟早对不上(铁律 8)。
+
+  // ⭐⭐ 2026-11-04 「跑这些」那一条【删了】,连同它开的「这一轮跑这些」抽屉。
+  //    用户:「运行区停止纽上面还有『跑这些』区,但任务已经挪到停止纽下方了,
+  //    这两区重复了」—— 成立。10-27 的 c 版把【完整任务列表】放回页面之后,
+  //    那一条摊开的名字和下面那张列表说的是同一件事,一个任务时连文字都一模一样。
+  // ⚠️ 删之前先把它唯一不重复的那一位搬走了:「这一趟拍下了哪几个」
+  //    现在是列表里的「排队」标(见 画任务库)。**先搬后删**,不然是把信息删了。
+  // ⚠️ 抽屉是【跟着一起删】的,不是留着:它的唯一入口就是那一条。
+  //    只拆一头的后果 2026-11-01 反着踩过 —— 留着的那头活得好好的、就是够不着,
+  //    而闸和单测一声不响(CLAUDE.md 18.10)。
+  // ⚠️ 快照 `这趟任务们` 【留着】—— 列表那个「排队」标现在读的就是它。
+
+  /* ⭐ 歇着的时候说一句【歇住的是什么】。借的是「限流暂停」那张黄卡的样子 ——
+     同一类事:**停着,但没出错**。
+     ⚠️ 这句不是客套:屏幕上同时有「暂停」和「停止」两个出口,而它们的差别
+        (一个留着这一趟、一个把它作废)**在钮上看不出来**。不写的话,
+        人只会从字面猜,而猜错的那一下代价是整趟重来。 */
+  if (s.手动暂停) {
+    h += '<div class="card" style="border-color:#f0d9a8;background:var(--warnbg)">'
+       + '<div class="hint" style="color:#7a6224">'
+       + (s.当前状态 === '收尾中'
+          ? '这一条发完就停 —— 半路掐会留下一条<b>发没发出去都不知道</b>的评论。<br>'
+          : '')
+       + '窗口和当前号<b>都留着</b>,计时也停了。'
+       + '点「继续」从这儿接着跑;<b>「停止」才会把这一趟作废</b>(回来要从第 1 轮重跑)。'
+       + '</div></div>';
+  }
+
+  // ⭐ 副入口(打样 v45)。⚠️ 和设置屏那个钮是【同一个入口两个门把】——
+  //    `data-看日志` 只有一处处理(铁律 18.11)。
+  //    为什么运行区也要有:出事那一刻人就在这一屏,让他再去设置里翻不合理。
+  h += '<div class="hint" style="text-align:right;margin:0" data-看日志>'
+     + '<u style="color:var(--acc)">⋯ 看更早的(存 '
+     + (快照.日志存几天 || 3) + ' 天)</u></div>';
+
+  // ⚠️ 运行区这一份要封高(见 .log.run 的注释)—— 不封的话日志把停止顶出屏幕。
+  h += 日志块('run');
+
+  // ⭐ 停止【紧跟在运行区后面】,任务列表接在它下面(照插件 task-panel.js:95:
+  //    `runSlot = [状态卡, 停止钮]` 整块在 `tlist` 上方)。
+  // ⚠️ 2026-10-27 第三次改这里。前两版:
+  //      a) 钮顶到最底 + 列表照常 → 任务一多,停止被挤出屏幕(v35 量过)
+  //      b) 钮顶到最底 + 列表收成一行 → 停止好按了,但**跑着时没法再跑别的任务**
+  //         (用户当场指出)—— 为了一个钮的位置,砍掉了整个任务列表,代价下错了。
+  //    现在:列表完整留着(连「发」和「新增」一起),停止往上提到它该在的地方。
+  /* ⭐⭐ 2026-11-05 底下这一排从【一个停止】变成【暂停 + 停止】。
+     用户:「任务运行时我想要加一个暂停键」—— 打样 v46,他挑的 B(并排),
+     加了两条:暂停窄一点、两边都上符号。
+
+     ⚠️ 为什么非要有暂停:`停止` 会把这一趟**作废** —— 在途那条清掉、
+        `号失效` 记号清掉、再按「开始」是从第 1 轮第 1 个号重来。
+        想歇十分钟的人要的根本不是这个(理由和状态机那边 `case '暂停'` 写的是同一条)。
+     ⚠️ 钮写「暂停」还是「继续」,读的是快照 `手动暂停`,**不是** `当前状态 === '已暂停'`:
+        按下去到真停住中间有个「收尾中」(等这条发完),那几秒人已经按过暂停了,
+        再给他一个「暂停」是撒谎。
+     ⚠️ 停止那个钮【一个字没动】—— 位置、颜色、通栏都照旧(只多了个 ■)。
+        那个位置是 2026-10-27 改了三版才定下来的,别顺手动它。 */
+  var 歇着 = !!s.手动暂停;
+  h += '<div class="btnrow">'
+     + '<button class="big hold' + (歇着 ? ' go' : '') + '" data-意图="'
+     + (歇着 ? '继续' : '暂停') + '">' + (歇着 ? '▶ 继续' : '▮▮ 暂停') + '</button>'
+     + '<button class="big stop" data-意图="停">■ 停止</button>'
+     + '</div>';
+  return h;
+}
+
+function kv(k, v) { return '<div class="kv"><span>' + k + '</span><span>' + v + '</span></div>'; }
+// 2106 → 2,106。⚠️ 日志条数经常是四位数,不分节根本读不出是两千还是两万。
+function 千分位(n) {
+  var 文 = String(n == null ? 0 : n), 出 = '';
+  for (var i = 0; i < 文.length; i++) {
+    if (i > 0 && (文.length - i) % 3 === 0) 出 += ',';
+    出 += 文.charAt(i);
+  }
+  return 出;
+}
+// confirm/alert 里的换行。⚠️ 【故意不写反斜杠转义】—— 经 heredoc 改这个文件时
+//    会被吃掉一层变成真换行,那是 JS 语法错,整块 <script> 一行都不执行(铁律 18 ⑤)。
+function 跳行() { return String.fromCharCode(10); }
+
+/**
+ * 把播放页网址缩短给下拉用。`https://v.qq.com/x/cover/mzc00200kon535w.html`
+ * → `v.qq.com/…/mzc00200kon535w.html`
+ *
+ * ⚠️ 砍的是【中间】不是尾巴 —— 尾巴那串 cover id 正是区分两个剧的唯一依据,
+ *    砍掉它选单里就会出现两行一模一样的东西。
+ */
+function 简网址(u) {
+  var 文 = String(u || '').replace(/^https?:\/\//, '');
+  var 段 = 文.split('/');
+  if (段.length <= 3) return 文;
+  return 段[0] + '/…/' + 段[段.length - 1];
+}
+/**
+ * 「挑一个」控件(mockup v30 方案 D1)—— 目标页面和选评论池共用这一份。
+ *
+ * ⚠️ 做成共用的,是因为两边长得一样、行为也一样。各写一份迟早会岔开:
+ *    改了一边的圆角/收起逻辑,另一边忘了改,就成了一屏两种脾气。
+ *
+ * 配置:{ 字段, 项们, 占位, 画一项(项)->html, 值的(项)->string }
+ *   · 项们 = [{...}],每项由 值的() 给出它代表的值
+ *   · 手填模式下就是个普通输入框 + 「↩ 挑」
+ * ⚠️⚠️ 两种模式下都【必须】有一个 `data-字段="<字段>"` 的输入框(触发器模式下是
+ *    hidden)—— `收草稿`/`填回草稿` 认这个属性。少了它,挑中那一下就得去写 `草稿`,
+ *    而那正是会被 `重绘()` 开头的 `收草稿()` 盖掉的写法(铁律 18.6)。
+ */
+function 挑一个(c) {
+  // ⚠️ `显示值` 只影响【显示和配对】,不影响存下去那个字段。
+  //    「自己输入」时 remoteDrama 本来就该是空的,但触发器上不能写「还没选」——
+  //    其实已经选了,只是选的不是一个池。
+  var 值 = (c.显示值 != null) ? c.显示值 : ((草稿 && 草稿[c.字段]) || '');
+  var 配上 = null;
+  for (var i = 0; i < c.项们.length; i++) {
+    if (c.值的(c.项们[i]) === 值) { 配上 = c.项们[i]; break; }
+  }
+  // ⭐ `只能挑` = 不给「自己填」那条路(用户 2026-10-25:「选评论池不必自己写剧名」)。
+  //    评论池必须是仓里真有的那个目录(`comments/<剧名>/0.txt`),手敲一个名字
+  //    只会拉不到、白跑一趟。插件那边也是纯 select,没有手填。
+  var 只挑 = !!c.只能挑;
+  // null = 还没表态 → 看【这个值在不在清单里】。老任务存的是手敲的,
+  // 不这么判的话打开编辑器只看到一个点不动的触发器,想改还得绕进弹层。
+  // ⚠️ 清单是异步拉的,所以【渲染时现算】,不能开编辑器那一下算一次。
+  var 手填 = 只挑 ? false
+           : ((手填的[c.字段] == null) ? !!(值 && !配上) : 手填的[c.字段]);
+  var h = '<div class="wrap">';
+  if (手填 || (!c.项们.length && !只挑)) {
+    h += '<input class="inp" data-字段="' + c.字段 + '" placeholder="' + esc(c.占位) + '">'
+       + (c.项们.length ? '<button class="back" data-挑回="' + c.字段 + '">↩ 挑</button>' : '');
+  } else {
+    // ⚠️⚠️ 触发器模式下也【必须留一个 data-字段】(hidden)—— `收草稿`/`填回草稿`
+    //    都认这个属性。少了它,挑中那一下就得去写 `草稿`,那正是铁律 18.6
+    //    会被 `重绘()` 开头的 `收草稿()` 盖掉的写法。
+    h += '<input type="hidden" data-字段="' + c.字段 + '">'
+       + '<button class="trig" data-挑开="' + c.字段 + '"'
+       + (c.项们.length ? '' : ' data-挑空') + '>';
+    if (配上) {
+      h += c.画一项(配上);
+    } else if (值) {
+      // 只挑模式下存着一个【清单里没有】的值 —— 多半是那个池从仓里撤了。
+      // ⚠️ 不能只显示占位「还没选」:值其实还在(存下去也还是它),
+      //    显示成「没选」会骗人。把它和原因一起摆出来,让人自己重挑。
+      h += '<span class="nm" style="color:var(--warn)">' + esc(值) + '</span>'
+         + '<span class="u" style="color:var(--warn)">清单里没有这个池了 —— 重挑一个</span>';
+    } else if (!c.项们.length) {
+      h += '<span class="nm" style="color:var(--ink3)">清单还没拉到 —— 点一下重试</span>'
+         + '<span class="u">&nbsp;</span>';
+    } else {
+      h += '<span class="nm" style="color:var(--ink3)">' + esc(c.占位) + '</span>'
+         + '<span class="u">&nbsp;</span>';
+    }
+    h += '</button>';
+    if (弹层开的是 === c.字段 && c.项们.length) {
+      h += '<div class="pop">'
+         + c.项们.map(function (d) {
+             return '<div class="it' + (c.值的(d) === 值 ? ' on' : '') + '"'
+                  + ' data-挑中="' + esc(c.值的(d)) + '" data-挑给="' + c.字段 + '">'
+                  + c.画一项(d) + '</div>';
+           }).join('')
+         + (只挑 ? ''
+                : '<div class="sep"></div>'
+                  + '<div class="self" data-挑手填="' + c.字段 + '">✎ ' + esc(c.手填字) + '</div>')
+         + '</div>';
+    }
+  }
+  return h + '</div>';
+}
+
+
+/**
+ * 「上次登录」那一行。
+ *
+ * ⚠️ 腾讯给的是 `2026-9-26 8:43:29` 这种本地时间串,**月/日/时都不补零**,
+ *    `new Date(那个串)` 在不同引擎上行为不一致 —— 自己按位拆,别交给 Date 去猜。
+ * ⚠️ 算「几天前」可能因为时区差出几个钟头,所以**绝对时间才是主角**,
+ *    相对时间只在算得出、而且不离谱的时候当后缀。
+ */
+/**
+ * 「多久以前」。⚠️ 给那些【会过期的结论】用 —— 它们落了盘,重启后还在,
+ *    不把时间一起显示就会被当成「现在的状态」。
+ */
+function 多久以前(戳) {
+  if (!戳) return null;
+  var 差 = Date.now() - 戳;
+  if (差 < 0) return null;
+  if (差 < 60000) return '刚刚';
+  if (差 < 3600000) return Math.floor(差 / 60000) + ' 分钟前';
+  if (差 < 86400000) return Math.floor(差 / 3600000) + ' 小时前';
+  return Math.floor(差 / 86400000) + ' 天前';
+}
+
+function 登录时间(串) {
+  if (!串) return null;
+  var m = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})/.exec(String(串).trim());
+  if (!m) return { 文: String(串).slice(0, 16) };
+  var 补 = function (n) { return (n < 10 ? '0' : '') + n; };
+  var 文 = 补(+m[2]) + '-' + 补(+m[3]) + ' ' + 补(+m[4]) + ':' + m[5];
+  var t = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
+  var 差 = Date.now() - t;
+  var 天 = Math.floor(差 / 86400000);
+  var 尾 = '';
+  if (差 >= 0 && 天 <= 400) {
+    尾 = 天 >= 1 ? ' · ' + 天 + ' 天前'
+       : (差 >= 3600000 ? ' · ' + Math.floor(差 / 3600000) + ' 小时前' : ' · 刚刚');
+  }
+  return { 文: 文 + 尾 };
+}
+
+// ══ 屏⑥ 页面 ══════════════════════════════════════════
+// 用某个号的【数据仓】开腾讯页面。打样 v26。
+//
+// ⚠️ 这一屏的「内容」不是 HTML —— 是【另一个原生 WebView】盖在内容区上。
+//    所以这里只负责两件事:① 顶栏画浏览器的壳 ② 内容区留空给它
+//    面板的顶栏和底栏都还在,底栏那几个 TAB 随时能切走(这就是 v26 的全部意思)。
+function 画页面屏(题, 右1, 右2, 内容) {
+  var 谁 = 快照.浏览中的号;
+  if (!谁) {
+    题.textContent = '页面';
+    // ⭐ 空态【就一句话】(用户 2026-11-11:「只留下『尚未开启腾讯页面』就好了」)。
+    //    原来这儿是两张卡:一段三句的说明 + 一条黄底的「一个号一份帐号信息」。
+    //    用户对后者的原话是「让人不明所以」—— 说得对:
+    //    那句讲的是**数据仓隔离**(一个很内部的概念),而人站在一个空屏幕前,
+    //    心里的问题只有「这儿怎么是空的」。答非所问的解释比不解释更费神。
+    // ⚠️ 那条「一个号一份」没有消失,它在**账号屏**那块「开始之前」里 ——
+    //    那儿才是它说得上话的地方(人正在加号、正在想号之间会不会串)。
+    // ⚠️ 连「去账号页点浏览」那句也拿掉了,是照用户说的办。
+    //    真要加回来就加这一句,别把那三段再搬回来。
+    // ⚠️ 空态【不放按钮】—— 挑号只该有一个入口(账号屏),两个入口迟早不一致。
+    内容.innerHTML =
+        '<div class="card"><div class="hint">尚未开启腾讯页面</div></div>';
+    return;
+  }
+
+  画窗口条();
+  // ⚠️ 待定仓【还不是一个号】—— 它不在 号们 里,所以别去查、也别叫它的 id。
+  var 待定 = (快照.待定仓 && 快照.待定仓 === 谁);
+  var a = 号们().filter(function (x) { return x.id === 谁; })[0] || {};
+
+  // ⭐ A1 两行分工(2026-10-24):
+  //    这一行 = 【这一页的事】(后退 / 刷新 / 这个号现在能不能用)
+  //    下面那条页签 = 【哪个号的事】(切换 / 关闭)
+  //    ⚠️ 号名【只出现在页签里】。原来顶栏也写一遍,是重复的。
+  //    ⚠️ 「关掉」删了 —— 和页签上的 × 是同一个动作同一个目标。
+  var 几时 = 多久以前(a.上次查于);
+  // ⭐ 跑的时候这句话换成【跑到哪了】(打样 v28 ②)——
+  //    那会儿你盯着这一屏是想知道进度,不是想知道这个号能不能用;
+  //    能不能用有页签下面那条跑条 + 账号屏在管。
+  // ⚠️ 登录中优先于「在跑」—— 扫码那一刻最要紧的是「等你扫码」。
+  var 状 = 待定 ? ['warn', '新登录 · 等你扫码']
+         : 快照.登录中 ? ['warn', '等你扫码']
+         : 在跑() ? ['acc', 跑到哪了()]
+         : a.页面登录态 === 'in'  ? ['ok',  '有效' + (几时 ? ' · ' + 几时 : '')]
+         : a.页面登录态 === 'out' ? ['bad', '失效' + (几时 ? ' · ' + 几时 : '')]
+         : ['ink3', '状态待确认'];
+  题.className = 'pagebar';
+  // 🔴 引擎正在这一页上发评论 -> 【不画】‹ ↻。刷一下 / 退一步,
+  //    发到一半那条当场没了,而发送链不知道,只能干等 90 秒超时。
+  // ⚠️ 画不画【由状态机说了算】(`快照.这页是引擎的`),界面一个字都不自己判 ——
+  //    和旁边的 `快照.这页登不上` 同一条规矩(铁律 15)。
+  // ⚠️ 派发那边【不再另挡一道】:钮都不画了,剩下唯一能发出 `网页后退` 的是
+  //    返回键,而原生那条路自己问同一个判据(引擎服务.网页后退)。
+  //    多挡一道只会变成「按了没反应」—— 那是铁律 14 栩过的坑。
+  题.innerHTML =
+        (快照.这页是引擎的
+          ? '<span class="navlock">🔒 引擎在这页上发</span>'
+          : '<span class="navbtn" data-页后退="1">‹</span>'
+            + '<span class="navbtn" data-页刷新="1">↻</span>')
+      + '<span style="margin-left:auto;font-size:12px;color:var(--' + 状[0] + ')">'
+      + esc(状[1]) + '</span>';
+  if (待定) {
+    // 登到一半不想登了 —— 得给个出口,否则那个空仓会一直挂着
+    右2.textContent = '不登了'; 右2.className = 'tbtn'; 右2.setAttribute('data-意图', '弃待定仓');
+  } else if (快照.这页登不上) {
+    // ⭐ 2026-10-24 用户要的:号登不上了,就地给个重登入口,不用绕回账号屏。
+    // ⚠️ 亮不亮【由状态机说了算】(快照.这页登不上),界面一个字都不自己判 ——
+    //    这里拿 a.页面登录态 === 'out' 自己算的话,刚开机那一下就会亮:
+    //    那个字段是存在档案里的【历史】,页面还没看清就先说「登不上」。
+    //    用户原话:「必须真的落定判定登不上再显示」。
+    右2.textContent = '重新登入'; 右2.className = 'tbtn'; 右2.setAttribute('data-意图', '重新登入');
+  }
+  // ⚠️ 内容区必须空 —— 原生 WebView 就盖在这块上面,画什么都看不见
+  内容.innerHTML = '';
+}
+
+// ⚠️ 顶栏里的 ‹ ↻ 是【标题的一部分】,不能用 data-意图(会和整行标题抢点击)。
+//    单独按 x 坐标分:左边那一小段是后退,再右边一点是刷新。
+// ⚠️ 2026-10-24:`‹` `↻` 以前是按【x 坐标】切出来的隐形点击区
+//    (x<22 后退 / x<48 刷新)—— 没按钮样子、没按下反馈、手指偏一点就没反应,
+//    用户问「这两个符号代表何意」正是因为根本看不出可点。现在是真按钮走委托。
+document.getElementById('题').addEventListener('click', 派发);
+
+// ══ 屏② 任务库 ════════════════════════════════════════
+// 块序照 v18(用户 2026-09-22 定),2026-10-24 去掉「参与轮换」那一块(打样 v27 ①B):
+//     列表 → 参数 → 空白 → 开始
+// ⚠️ 空白永远在最后一块的上面 —— 「挤的永远是列表」那套 CSS 靠的就是这个。
+function 画任务库() {
+  var 任务 = 快照.任务们 || [], h = '';
+  // ⭐ 2026-11-04「这一趟拍下了哪几个」搬到这张列表上来了。
+  //    在这之前只有运行区那条「跑这些」说得出,而那一条和这张列表看着是重复的
+  //    (用户当天指出)—— 真正重复的是【名字】,不重复的是【这一位】。
+  //    搬下来之后那一条才删得掉,不然就是把信息删了。
+  // ⚠️ 读的是 `这趟任务们` 不是 `勾选`:这一趟的真相是【开跑那一刻】拍下的那份,
+  //    跑着时改勾选不该影响它(rotation.js 那边单测钉着)。
+  // ⚠️ 2026-11-05 存的是【第几个】(1 起)而不是 true —— 右边那个标要写「排队 2」。
+  //    `这趟任务们` 是按 `配置.任务ID` 的顺序给的(快照那边保证),所以下标就是次序。
+  //    为什么非写号不可:顺序改成「勾的先后」之后,列表的竖直次序【不再是】跑的次序,
+  //    三个「排队」标从上往下读就成了假话。号是唯一还说真话的那个东西。
+  var 在趟里 = {};
+  (快照.这趟任务们 || []).forEach(function (t, i) { 在趟里[t.id] = i + 1; });
+
+  if (!任务.length) {
+    h += '<div class="card"><div class="hint">还没有任务。点右上角 <b>＋ 新增</b>。<br>'
+       + '一个任务 = 一部剧 + 一套节奏。<b>号不在任务里</b> —— '
+       + '号在外层轮换、任务在内层(照插件的模型)。</div></div>';
+  } else {
+    // ⭐⭐ 2026-11-05 补这一行。账号屏编辑态上早就印着一行(当时写的是
+    //    「…⠿ 按住拖 = 换顺序(列表顺序就是轮换顺序)」,当天下午 ⠿ 换成 ▲▼,
+    //    那句跟着改成「右边 ▲▼ = 调顺序」),任务屏多选态【一个字都没有】——
+    //    那个 ⠿ 看着没来由,正是因为屏幕上从来没有一句话说它管什么
+    //    (而 11-05 之前它确实什么都不管)。
+    // ⚠️ 一行写得下就别写两行:多选态底下还挂着「开始」,两行要挤列表
+    //    (「挤的永远是列表」那套 CSS 的意思是它会被挤,不是它挤得起)。393 宽量过。
+    if (多选中) {
+      h += '<div class="hint" style="margin:0 0 5px">勾 = 这一趟跑哪几个 · '
+         + '<b>勾的先后 = 跑的先后</b>(框里那个号)</div>';
+    }
+    h += '<div class="listwrap"><div class="list">';
+    任务.forEach(function (t) {
+      h += '<div class="item" data-任务="' + esc(t.id) + '">';
+      // ⚠️ 勾选态下每行的「发」让位给勾 —— 一屏不该有两种开跑入口
+      if (多选中) {
+        // ⭐⭐ 2026-11-05 框里写【第几个跑】,不写 ✓。用户:「直接用点选顺序建立
+        //    顺序不行吗」—— 行,但必须【看得见】,不然就是 ⠿ 那个老毛病换个地方犯。
+        // ⚠️ `.ck2` 本来就是 16x16 / 10px / color:#fff,写个数字不用改 CSS(量过)。
+        //    两位数【正好】塞得下:内容框 14px，"10" 也是 14px，不溢出(量过)。
+        //    三位数挤出 1px —— 勾 100 个任务不是真场景，挤出去也只是切掉一点。
+        // ⚠️ 没勾的时候画空字符串:`.ck2` 没底色时字也是白的,写什么都看不见。
+        h += '<div class="ck2' + (t.勾号 ? ' on' : '') + '" data-勾任务="' + esc(t.id) + '">'
+           + (t.勾号 || '') + '</div>';
+      }
+      // ⚠️ 名字旁边原来还挂一个「跑着」小标 —— 2026-10-24 去掉了:
+      //    右边那一格已经写着「跑着」,同一行说两遍是噪音。留右边那个,
+      //    因为它**占的正是「发」那个钮的位置**,必须就地说清楚为什么现在点不了。
+      //    (2026-11-05:右边那个从实心蓝钮改成了纯文字 —— 见 `.st` 那段。
+      //     位置没变,所以「就地解释」这条理由照样成立。)
+      // ⭐ 2026-11-05 多选态下【整行】是勾的热区。⠿ 删掉之后这一行上原本只剩
+      //    那个 16x16 的框点得着,其余全是死区 —— 拇指在手机上够不着 16 像素。
+      // ⚠️ 不是新手势:同一个 `data-勾任务`,只是热区变大了。多选态下编辑器
+      //    本来就进不去(派发那边 `改t && !多选中` 挡着),所以两边不抢。
+      h += '<div style="flex:1;min-width:0" data-'
+         + (多选中 ? '勾任务' : '改任务') + '="' + esc(t.id) + '">'
+         + '<div class="t1">' + esc(t.名字) + '</div>'
+         + '<div style="margin-top:2px">'
+         + t.标签.map(function (x, i) {
+             return '<span class="tag' + (i === 0 && x === '远程' ? ' acc' : '') + '">' + esc(x) + '</span>';
+           }).join('')
+         + (t.毛病 ? '<span class="tag bad">' + esc(t.毛病) + '</span>' : '')
+         + '</div></div>';
+      // 有毛病的任务点了也跑不起来,直接灰掉 —— 原因就挂在上面那个红标里,
+      // 不用再弹一次 toast(UI决策.md:原因和去处在同一个地方)
+      if (多选中) {
+        // ⭐⭐ 2026-11-05 这一格【空着】。原来是 ⠿(按住拖 = 排顺序),用户当天删掉:
+        //    「确实,任务列不应该有右边那个 ⠿,直接用点选顺序建立顺序不行吗」。
+        //    顺序搬到左边勾框里(写第几个跑),这一格就没活干了。
+        // ⚠️ 别顺手把「发」放回来:多选态底下有「开始」,一屏不该有两种开跑入口。
+        // ⚠️ 也别放「跑着/排队」:跑着的时候【进不来多选态】(见 重绘 那一段)。
+        // ⚠️ 这一支不能删,删了会落到最下面那个 else 去画一个能点的「发」。
+      } else if (t.跑着) {
+        /* ⭐ 正在跑的那一个。这一格【从来就不可点】(没有 data-发)——
+           更早以前它还是个能点的蓝「发」,再点一次等于把这一轮从头重开。
+           ⭐⭐ 2026-11-05 从 `.sm now`(实心蓝药丸)改成纯文字(打样 v47 方案 B)。
+           理由写在 `.st` 那段 CSS 上:它是**状态**,不该穿钮的衣服。 */
+        h += '<div class="st"><span class="dot"></span>跑着</div>';
+      } else if (在跑() && 在趟里[t.id]) {
+        // ⭐ 这一趟排着队、还没轮到的那几个。⚠️ 写「排队」不写灰「发」——
+        //    两个都是「现在点不了」,但「排队」多说了一句【它在这一趟里】,
+        //    而那正是上面那条「跑这些」被删掉之后没人再说的话。
+        // ⚠️ 2026-11-05 带上号。顺序 = 勾的先后之后,列表的竖直次序不再是跑的次序,
+        //    光写「排队」等于让人按位置猜 —— 那正是这一整轮要修的那个病。
+        // ⚠️ 2026-11-05 跟着「跑着」一起从灰框药丸改成灰文字 —— 它也是状态,
+        //    留着框就等于在一列里摆两种长得像钮、其实点不了的东西。
+        h += '<div class="st wait">排队 ' + 在趟里[t.id] + '</div>';
+      } else if (在跑()) {
+        /* ⭐⭐ 2026-11-05 这一格【什么都不画】。用户:「『发』这个字在运行时期
+           其实可以省略不显示吧?它不能在运行时发」—— 成立,而且这正是
+           **「不留灰钮」**那一条:灰着、点了没反应、又不说为什么的控件,这屏上一个都不留。
+           (原来画的是 `.sm off` 的「发」,理由是「别的任务也要灰掉:一次只跑一个任务,
+            点下去会悄悄把当前这一轮顶掉」。那个理由没变 —— 变的是**用不画来表达**,
+            而不是画一个灰的。要换任务还是得先「停止」。)
+           ⚠️ **空着本身就是话**:跑着的时候这一列只给【这一趟里的】任务挂标
+           (跑着 / 排队 N),没标 = 不在这一趟里。这比一个灰「发」说得更准 ——
+           那个灰钮说的是「能发但现在不行」,而它真正的意思是「它根本不在这一趟里」。
+           ⚠️ 整行照样点得开编辑器(`data-改任务` 在名字那一块上,不在这一格)——
+           「跑着也能改」(18.11)没受影响。 */
+      } else {
+        h += t.毛病
+          ? '<div class="sm off">发</div>'
+          : '<div class="sm" data-发="' + esc(t.id) + '">发</div>';
+      }
+      h += '</div>';
+    });
+    // ⚠️ 2026-11-01 这里原来还挂着一层底边渐隐(意思是「下面还有」)。
+    //    列表不自己滚了,它就是在说谎 —— 下面没有被藏起来的东西,整页往下滚就看得见。
+    h += '</div></div>';
+  }
+
+  var p = 快照.参数 || {};
+  // 🔴🔴 **展开时这一行和下面那三块是【一张卡】**(打样 v52 方案 D,2026-11-10)。
+  //
+  //    用户:「任务的参数那行点开时,看起来不像同一个区展开,
+  //            所以不太明白怎么缩起来」。去量了一下 —— **不是他看错**:
+  //    展开态是 `fold 行` + **三个各自带边框的 `.blk`**,而 `.body` 还有
+  //    `gap:8px`,屏幕上就是**四个互不相干的盒子**,没有任何东西把它们连起来。
+  //
+  //    他那句其实提了两件事,分开治:
+  //      ① 不像同一个区 -> `.fold.on` 去掉下圆角/下边线,三块包进 `.foldbody`
+  //         贴上去、彼此只留一条细线,最后一块补回下圆角 = 标准手风琴。
+  //      ② 不明白怎么缩起来 -> **把话说出来**:展开时行上垫 `--soft` 底
+  //         (一看就是标题条),右边那个小小的 `▾` 换成**「收起 ▴」**。
+  //
+  // ⚠️ 展开时**摘要让位**给「收起」—— 内容都摊在下面了,那一刻摘要是多余的。
+  // ⚠️ `.on` 是这个仓里既有的「激活态」后缀(`.ck.on` / `.runbar.on`),没新造词;
+  //    「收起」复用 `.tbtn`(顶栏那两个钮的样子),也没新造。
+  // ⚠️ 连起来之后**反而矮了 26px**(四条缝没了)——打样里量的 678 -> 652。
+  h += '<div class="fold' + (参数开 ? ' on' : '') + '" data-意图="切参数">'
+     + '<span class="k">参数</span>'
+     + '<span style="flex:1;min-width:0" class="name">'
+       + (参数开 ? '' : esc(参数摘要(p))) + '</span>'
+     + (参数开 ? '<span class="tbtn">收起 ▴</span>'
+               : '<span style="color:var(--ink3)">▸</span>')
+     + '</div>';
+  if (参数开) h += '<div class="foldbody">' + 画参数(p) + '</div>';
+
+  // ⚠️ 这里原来还有一行「参与轮换」摘要(只读 + 跳转)。2026-10-24 删掉 ——
+  //    用户:「参与轮换的选项太多余,因为隔壁的帐号列表就能直接编辑」。成立:
+  //    这一屏你在【编任务】,底栏「账号」就在隔壁一格,那一行的 › 和它去的是同一个地方。
+  //    两个入口一个意思,删了列表还能多看见一个任务(打样 v27 ①B)。
+  // ⚠️ 但它原来还兼着一件事:没选号时标红「还没选号 —— 点这里去挑」,
+  //    给灰掉的「开始」做解释(UI决策.md §3:「不弹窗不 toast,原因和去处在同一个地方」)。
+  //    那句话搬到下面「开始」钮本身了,别再在这儿加回来。
+  // ⚠️ 运行屏那一份【留着】—— 它在那边不是入口,是开跑前的最后一眼
+  //    (用哪几个号 / 从谁起 / 有没有掉线),别顺手一起删(打样 v27 ③)。
+
+  // ⭐⭐ 2026-11-01「参与轮换」这一条【跑着和停着共用这一份】,位置在参数那一块的底下。
+  //    用户原话:「条到帐号那个帐号摘要区放到参数区最下面就好」。
+  //    搬之前运行区自己还有一份(状态卡下面),两份长得一样、读的字段不一样 ——
+  //    正是 CLAUDE.md 里记着的那个「同一个药丸两处渲染,只改了一个」(铁律 8)。
+  // ⚠️ 它在这两屏上的身份【不一样】,两个都成立,所以位置也不冲突:
+  //      停着 = 开跑前的最后一眼(用哪几个号 / 从谁起 / 有没有掉线)
+  //      跑着 = 这一趟在用谁(只读的一眼,改轮换要去账号屏)
+  // ⚠️ 必须排在 `在跑() return` 【之前】—— 跑着时这一句 return 就把下面的
+  //    空白和「开始」都挡掉了,放在它后面跑着就看不见。
+  h += '<div class="card" data-意图="去账号" style="display:flex;align-items:center;gap:8px">'
+     + '<span style="font-size:13.5px;color:var(--ink3);flex:0 0 auto">参与轮换</span>'
+     + (快照.从谁起
+        ? '<span class="name" style="flex:1;min-width:0">从 ' + esc(快照.从谁起) + ' 起</span>'
+          + '<span class="pill' + (快照.参与里掉线几个 ? ' bad' : '') + '" style="flex:0 0 auto">'
+          + 快照.参与几个 + ' 个'
+          + (快照.参与里掉线几个 ? ' · ' + 快照.参与里掉线几个 + ' 失效' : '') + '</span>'
+        : '<span class="name" style="flex:1;min-width:0;color:var(--bad)">还没选号 —— 点这里去挑</span>')
+     + '<span style="color:var(--ink3);flex:0 0 auto">›</span></div>';
+
+  // ⚠️ 跑着的时候【停止】那个钮由运行区出,这儿就别再来一个 —— 一屏不该有两个
+  //    同名的主钮(铁律 18.8:最大最显眼的那个得是最常用的,不是最多的)。
+  if (在跑()) return h;
+
+  h += '<div class="sp"></div>';   // 空白只长不缩,挤的永远是列表
+
+  // ⚠️「开始」只在【多选态】出现(照 v18)。平时开跑走每行的「发」——
+  //    一屏不该有两种开跑入口:非多选态下「开始」要拿哪些任务跑是说不清的。
+  // ⚠️ 这里不再有 `在跑()` 那一支 —— 跑着的时候整页走 `画运行区()`,到不了这儿。
+  if (多选中) {
+    // ⚠️ 一个号都没参与 → 【不灰、不哑】:钮自己说原因,点了就带你去挑(打样 v27 ②B)。
+    //    屏幕上不留「灰着、点了没反应、也不说为什么」的控件 ——
+    //    和「退不动了必须有可见结果」是同一条规矩。
+    //    (没勾任务那种不用管:勾选框就在正上方,空着是自明的。)
+    if (!快照.参与几个) {
+      h += '<button class="big ask" data-意图="去账号">还没选号 —— 去账号挑 ›</button>';
+    } else {
+      var 能 = 快照.勾了几个 > 0;
+      h += '<button class="big' + (能 ? '' : ' off') + '" data-意图="' + (能 ? '开跑' : '') + '">'
+         + '开始(' + 快照.勾了几个 + ' 个任务)</button>';
+    }
+  }
+  return h;
+}
+
+function 参数摘要(p) {
+  var 出 = [];
+  if (p.干跑) 出.push('⚠️ 干跑');      // 排第一 —— 这条最容易忘了关
+  出.push(p.轮数 ? p.轮数 + ' 轮' : '不限轮');
+  if (p.每段上限分) 出.push('每段 ' + p.每段上限分 + ' 分');
+  if (p.卡住上限分) 出.push('卡 ' + p.卡住上限分 + ' 分换号');
+  if (p.限流就换号) 出.push('限流就换号');
+  return 出.join(' · ');
+}
+
+// 参数折叠只有两个照搬插件的字段(rounds / perTaskMin)+ 一组「换号条件」
+function 画参数(p) {
+  return '<div class="blk">'
+    + '<div class="fr"><span class="lb">共</span>'
+    + '<input class="inp num" type="number" data-参数="轮数" value="' + (p.轮数 || 0) + '">'
+    + '<span class="lb">轮</span>'
+    + '<span class="hint">0=不限。一轮 = 参与的号各跑一遍整组任务</span></div>'
+    + '<div class="fr"><span class="lb">每段上限</span>'
+    + '<input class="inp num" type="number" data-参数="每段上限分" value="' + (p.每段上限分 || 0) + '">'
+    + '<span class="lb">分</span>'
+    + '<span class="hint">0=不限时。⚠️ 从这一段开始算,正常也会到点</span></div>'
+    + '</div>'
+    + '<div class="blk"><div class="bt">换号条件(满足任一个就走下一个号)</div>'
+    + '<div class="fr"><span class="lb">卡住</span>'
+    + '<input class="inp num" type="number" data-参数="卡住上限分" value="' + (p.卡住上限分 || 0) + '">'
+    + '<span class="lb">分</span>'
+    + '<span class="hint">⚠️ 从上一条发成功算起,只有出事才会到点</span></div>'
+    // 🔴 热区整行,理由见编辑器里那个「启用冷却」(2026-11-10)。
+    + '<div class="fr ckrow" data-参数勾="限流就换号">'
+    + '<span class="ck2' + (p.限流就换号 ? ' on' : '') + '">'
+    + (p.限流就换号 ? '✓' : '') + '</span><span class="lb">一撞限流就换号</span></div>'
+    + '<div class="hint">⚠️ 只认<b>影子软限流</b>(ret=0 但没 feed_id)。'
+    + '<code>ret=35014</code> 是<b>重复内容判重</b>,换号一点用没有 —— 该换的是评论文本。</div>'
+    + '</div>'
+    // ⚠️ 干跑开关:走完整条链但最后不点发布。
+    //    没有它的话,第一次对着真号跑就是真跑 —— 出 bug 会直接把评论区刷脏,
+    //    而且 35014 判重会把好号误判掉。调参数、换选择器之后都该先干跑一遍。
+    + '<div class="blk' + (p.干跑 ? '' : '') + '" style="'
+    + (p.干跑 ? 'border-color:#f0d9a8;background:var(--warnbg)' : '') + '">'
+    + '<div class="fr ckrow" data-参数勾="干跑">'
+    + '<span class="ck2' + (p.干跑 ? ' on' : '') + '">'
+    + (p.干跑 ? '✓' : '') + '</span>'
+    + '<span class="lb"><b>干跑</b> —— 走完整条链,最后不点发布</span></div>'
+    + '<div class="hint">换了选择器、调了参数、新号第一次上,都先开著跑一遍。'
+    + '干跑照常计数照常换号,<b>只是不真发</b>。</div></div>';
+}
+
+// ══ 屏③ 任务编辑器 ════════════════════════════════════
+// ⭐ 「选评论池」下拉里的一项,但它**不是一个池名**,是【换一种填法】。
+//    2026-11-10 用户提的:「或许我们可以把本地结合到远程去,在选择评论池时
+//    增加一个『自己输入』选项就好?」—— 查下来他说得对:引擎里这两种
+//    只差【池从哪来】一件事(rotation.js 窗口好了:远程拉网址、自己输入拿
+//    bulletList,之后同一条 挑文本/判重/换号 的路),所以「任务模式」
+//    本来就不该是一个要人先学会的独立开关。
+// ⚠️ 存下去的字段没变:还是 `taskMode: '本地'|'远程'`,老任务不用迁。
+var 自填标记 = '✎ 自己输入';
+
+/** 离开编辑器就把试连那份【全文】清掉。
+ *  ⚠️ 它可能有 5000 行,而快照每 250 毫秒要 stringify 一遍 ——
+ *     和「看日志」收起时清远端那份(`收过往日志`)同一个理由。
+ *  ⚠️ 刻意复用 `试连` 这个意图名(剧名留空 = 清掉)。
+ *     🔴 **不是因为「新意图名加不了」** —— `引擎服务.收意图` 的 `default` 会把
+ *     不认识的意图**原样转给状态机**(2026-10-24 拆的那堵墙),新意图名是**层 2**。
+ *     复用的真理由:清预览和试连动的是**同一个字段** `s.预览` —— 一个字段一个入口,
+ *     开两个门迟早一个改了另一个没改(铁律 8)。 */
+function 清预览() {
+  if (快照 && 快照.预览) 发意图('试连', { 剧名: '' });
+}
+
+/** 离开编辑器就把借来的【任务正文】还掉(2026-11-11)。
+ *  ⚠️ 和 清预览 同一条理由,只是这一份是「这个任务自己的几千条」:
+ *     不还它就常驻快照,每 250 毫秒整份 stringify 一遍。
+ *  ⚠️ 没借到就别发 —— 快照一秒来四份,不看一眼会白发四个意图。 */
+function 清正文() {
+  if (快照 && 快照.任务正文) 发意图('收任务正文');
+}
+
+/** 出编辑器的清场【只有这一处】。
+ *  编辑器借了两样大块头:试连那份全文、这个任务自己的正文 —— 出门一起还。
+ *  ⚠️ 刻意合成一个:四个出口(收抽屉 / 弃编辑 / 存任务 / 删任务)原来各写一句
+ *     `清预览()`,再添一样就是四处各补一行 —— 漏一处的症状是**悄悄地慢**,
+ *     屏幕上什么都看不出来(铁律 8)。 */
+function 出编辑器清场() {
+  清预览();
+  清正文();
+}
+
+// 字段顺序/标签/默认值【逐条对过插件 task-panel.js:392-480】(UI决策.md §3)
+function 画编辑器() {
+  var t = 草稿, 远程 = t.taskMode === '远程', h = '';
+
+  // ⚠️⚠️ 这儿原来有一行「任务模式:远程 | 本地」的分段控件,2026-11-10 **拆了**。
+  //    它现在是「选评论池」下拉里的一项(`自填标记`)。拆掉的理由见那个常量。
+  //    `data-模式` 那个 handler 留着没删:老面板缓存/单测还可能发得出来。
+
+  // ➕ 目标页面 —— 插件靠「你人在哪个剧集页」推断,App 没这个前提
+  // ⭐ 清单来自 whitelist.json 的 dramaLinks。手敲 `mzc00200kon535w` 这种 id
+  //    没人记得住,也没法核对敲错没有。
+  h += '<div class="fr"><span class="lb" style="width:56px">目标页面</span>'
+     + 挑一个({
+         字段: '目标URL',
+         项们: 快照.剧集链接 || [],
+         占位: '还没选 —— 挑一个剧集',
+         手填字: '自己填一个网址…',
+         值的: function (d) { return d.网址; },
+         画一项: function (d) {
+           return '<span class="nm">' + esc(d.名) + '</span>'
+                + '<span class="u">' + esc(简网址(d.网址)) + '</span>';
+         },
+       })
+     + '</div>';
+  // ⭐ 评论池下拉(用户 2026-10-25:「要参考插件,有选单」)。
+    //    清单 = whitelist.json 的 `dramas` = **有评论文件的剧**,和插件同一份
+    //    (task-panel.js:502)。它和上面那个 dramaLinks 不一定一样:
+    //    有播放页链接 ≠ 有评论池,所以两个下拉各读各的。
+  // ⚠️ 栏名叫「选评论池」不叫「选剧名」——「剧名」说不出它是干嘛的
+  //    (用户 2026-10-25:「看起来不明白是评论池」)。值还是剧名,只是换了说法。
+  h += '<div class="fr"><span class="lb" style="width:56px">选评论池</span>'
+     + 挑一个({
+         字段: 'remoteDrama',
+         // ⭐ 仓里那些池在前,「✎ 自己输入」排在【最后】(用户 2026-11-11:
+         //    「选评论池的『自己输入』顺序上放最后一个选项就好」)。
+         // ⚠️ 它原来排第一 —— 而清单第一项是眼睛最先落的地方,那儿该留给常用的那种。
+         //    「自己输入」是少数情况(多数人就是挑一个仓里的池),排尾更顺。
+         项们: (快照.剧名们 || []).concat([{ 名: 自填标记, 自填: true }]),
+         占位: '还没选 —— 挑一个评论池',
+         只能挑: true,   // 池必须是仓里真有的目录,手敲没有意义
+         // ⚠️ 自己输入时 `remoteDrama` 本来就该是空的(存下去也是空的),
+         //    所以【显示】另给一个值,不然它会掉回占位「还没选」——
+         //    那是骗人的:其实已经选了,只是选的不是一个池。
+         显示值: 远程 ? null : 自填标记,
+         值的: function (d) { return d.名; },
+         画一项: function (d) {
+           return '<span class="nm">' + esc(d.名) + '</span>'
+                + (d.自填 ? '<span class="u">自己写几条,不从仓里拉</span>' : '');
+         },
+       })
+     + (远程 ? '<div class="sm" data-意图="试连">测试连接</div>' : '')
+     + '</div>';
+
+  // ⭐ 任务名【只画一处】,两种填法共用(2026-11-11 用户:「任务名都用 留空自动取名」)。
+  //    原来远程一份、自己输入一份,**连占位都不一样**(「留空 = 自动起名」/「给它起个名」)
+  //    —— 规则统一之后再留两份,就是等着下次只改一边。这项目为这个形状付过两次代价:
+  //    「参与轮换」那个药丸两屏各画一份、改白话那天漏掉运行区那一份(铁律 8)。
+  // ⚠️⚠️ 位置:**排在评论池那一块的【上面】**,不是下面。
+  //    v17 摆在下面,结果「自己输入」那种填法【把它埋在一大片 textarea 底下】——
+  //    而「编辑评论池」会把整池(几千行)搬进那个框,名字就更看不见了。
+  //    用户 2026-11-11 当天提的「任务建立后任务名要能改」多半就是这个:
+  //    **改名一直是能改的**(预览和真机都验过存得下来),可一个要滚下去才看得见的
+  //    输入框,和不能改没差多少。摆在这儿两种填法还是同一个位置,而且永远在第一屏。
+  // ⚠️ 留空【不是错】,是「让它自动起名」,占位和说明都要把这件事说出来,
+  //    别写成「给它起个名」那种像必填的话。(插件那边自己输入时名字是**必填**的:
+  //    `task-panel.js:520`「请填任务名称」—— 这条是故意不跟。)
+  // ⚠️ 说明分两种:新建时说【规则】(第一次见要知道留空会得到什么),
+  //    改已有任务时说【随时可以改 + 怎么重新起】—— 那会儿框里已经有名字了,
+  //    再把整条规则念一遍是废话,而人这会儿真正想知道的是「我能不能动它」。
+  h += '<div class="fr"><span class="lb" style="width:56px">任务名</span>'
+     + '<input class="inp grow" data-字段="name" placeholder="留空 = 自动起名"></div>'
+     + '<div class="hint">'
+     + (编辑中 === 'new'
+        ? '留空就自动起名:挑了<b>目标页面</b>就用那个剧名,没挑就用<b>评论池</b>名,'
+          + '两样都是自己输入的就叫「<b>任务</b>」—— 后面都跟上「<b>_日期 时分</b>」。'
+        : '<b>随时可以改。</b>清空再保存就重新自动起一个'
+          + '(<b>目标页面</b>剧名 › <b>评论池</b>名 ›「<b>任务</b>」,后面跟「_日期 时分」)。')
+     + '</div>';
+
+  if (远程) {
+    var pv = 快照.预览;
+    if (pv) {
+      h += '<div class="fr"><span class="lb">评论预览</span><span style="flex:1"></span>'
+         + (pv.条数 < 0 ? '<span class="pill">拉取中…</span>'
+            : pv.条数 ? '<span class="pill run">拉到 ' + pv.条数 + ' 条</span>'
+                      : '<span class="pill bad">' + esc(pv.错 || '一条都没有') + '</span>')
+         + '</div>';
+      // ⭐ 可滚、可选中、可复制(2026-11-10 用户:「插件中本来可以滚动查看并复制,
+      //    因为有的人可能想复制一些去给『本地』模式用」)。
+      //    用 readonly textarea 而不是 div:长按就有系统自带的「全选 / 复制」,
+      //    不用我们自己做一套,而且 textarea 本来就会滚。
+      // ⚠️ 内容【不写进 HTML】,由 填回草稿 那一趟灌进去 ——
+      //    5000 行塞进 innerHTML 每次重绘都要重新解析一遍。
+      if (pv.条数 > 0) {
+        // ⭐ 钮叫「编辑评论池」(用户 2026-11-11 定的名),干的事是
+        //    **把拉到的整池搬进下面的编辑区**,搬完这个任务就用你改的那一份。
+        // ⚠️⚠️ 这个名字有个坑要当场堵上:它听起来像在改【仓里】那个池
+        //    (那样改了所有人都会变)。实际上改的只是**这个任务自己的一份拷贝** ——
+        //    所以下面那行提示一个字都不能省。
+        h += '<textarea class="inp ta pv" data-池预览 readonly></textarea>'
+           + '<div class="fr"><span class="hint">长按可以全选、复制</span>'
+           + '<span style="flex:1"></span>'
+           + '<div class="sm" data-意图="编辑评论池">编辑评论池</div></div>'
+           + '<div class="hint">「编辑评论池」= 把这 <b>' + pv.条数 + '</b> 条整个搬到下面改。'
+           + '改的是<b>这个任务自己的一份</b> —— <b>仓里那份不动</b>,'
+           + '别的任务照样拉原来的。</div>';
+      }
+      // ⚠️ 池小了会一直撞 35014。实测:内置 20 条时一路判重,真池 5000 条后全消失。
+      if (pv.条数 > 0 && pv.条数 < 50) {
+        h += '<div class="hint" style="color:var(--warn)">⚠️ 池只有 ' + pv.条数
+           + ' 条,容易撞 <code>35014</code> 重复内容判重</div>';
+      }
+    }
+  } else {
+    // ⭐ 正文可能【还在路上】—— 它不在快照里,开编辑器时单独借(见 开编辑器 /
+    //    接任务正文)。真机上这一下是一个来回,≤ 250 毫秒。
+    // ⚠️⚠️ 没到的时候这个框**绝不能挂 `data-字段`**:挂了,重绘 开头的 收草稿()
+    //    就会照着这个空框把 `草稿.bulletList` 写成 [] —— 那是把人家几千条抹了。
+    //    不挂 = 文档里查不到这个字段 = 收草稿 碰不到它。
+    //    (第二道闸在状态机:`存任务` 没拿到 `带正文` 就留住仓里那一份。)
+    // ⚠️ 刻意画成**一样大的框**,不是换成一行字:换了就是一次高度抖动,
+    //    250 毫秒之后再弹回来 —— 看着像界面闪了一下。
+    // ⚠️ `readonly` 是认真的:这会儿敲进去的字下一拍就会被正文顶掉。
+    h += '<div class="fr"><span class="lb">评论内容 —— 一条一行</span></div>'
+       + (t.bulletList === undefined
+          ? '<textarea class="inp ta" readonly placeholder="正在取这个任务的评论…"></textarea>'
+          : '<textarea class="inp ta" data-字段="bulletList"></textarea>')
+       + '<div class="hint">空行和重复的会自己去掉。'
+       + '想拿仓里某个池当底子:上面挑那个池 → 测试连接 → 「<b>编辑评论池</b>」,'
+       + '整池就搬到这儿来改。</div>';
+  }
+
+  h += '<div class="fr"><span class="lb">每隔</span>'
+     + '<input class="inp num" type="number" data-字段="divider">'
+     + '<span class="lb">秒发一条</span>'
+     + '<span class="hint">引擎再加 0~5 秒抖动 → 实际 6~11 秒</span></div>';
+
+  h += '<div class="fr"><span class="lb">发满</span>'
+     + '<input class="inp num" type="number" data-字段="targetCount">'
+     + '<span class="lb">条结束</span>'
+     + '<span class="hint">0=不限;<b>只算真成功</b>(拿到 feed_id);和「每段上限分」先到先算</span></div>';
+
+  // 🔴 热区是【整行】,不是那个 16px 的小方块。2026-11-10 用户报
+  //    「启用冷却...现在好像没折叠也不可选」—— 点在字上 `closest('[data-勾字段]')`
+  //    从文字往上找不到,于是什么都不会发生。和「下载并安装新版」那颗钮
+  //    (铁律 18.18)是同一类静默失效,只是那次漏的是分支、这次是热区。
+  h += '<div class="fr ckrow" data-勾字段="cooldownEnabled">'
+     + '<span class="ck2' + (t.cooldownEnabled ? ' on' : '') + '">'
+     + (t.cooldownEnabled ? '✓' : '') + '</span>'
+     + '<span class="lb">启用冷却(到量/到点暂停一会,防限流)</span>'
+     + '<span style="flex:1"></span>'
+     + '<span class="hint">' + (t.cooldownEnabled ? '收起 ▴' : '关着 ▾') + '</span></div>';
+
+  // ⭐ 关掉就【真收起来】(2026-11-10 用户:「应该折叠起来可选吧」)。
+  // ⚠️ 原来是置灰不隐藏(`.blk.off{opacity:.45;pointer-events:none}`),
+  //    当时的理由是「不跳版,而且看得见自己关了什么」。改掉是因为那三行
+  //    一直占着大半屏,而且置灰在手机上更像「坏了」不像「关了」——
+  //    现在那一行自己写着「关着 ▾」,这件事说出来了,就不用靠占位子表达。
+  if (t.cooldownEnabled) {
+    h += '<div class="blk"><div class="bt">冷却</div>'
+       + '<div class="fr"><span class="lb">①每发</span>'
+       + '<input class="inp num" type="number" data-字段="cooldownByCount">'
+       + '<span class="lb">条</span><span class="hint">0=不按条</span></div>'
+       + '<div class="fr"><span class="lb">②每运行</span>'
+       + '<input class="inp num" type="number" data-字段="runDuration">'
+       + '<span class="lb">分</span><span class="hint">0=不按时</span></div>'
+       + '<div class="fr"><span class="lb">暂停</span>'
+       + '<input class="inp num" type="number" data-字段="pauseDuration">'
+       + '<span class="lb">分</span></div></div>';
+  }
+
+  // ⚠️ 限流块【不受冷却开关管】—— 照插件 blkPubLimit.hidden = !pub,只跟模式走
+  h += '<div class="blk"><div class="bt warm">限流</div>'
+     + '<div class="fr"><span class="lb">连续 3 次失败 → 暂停</span>'
+     + '<input class="inp num" type="number" data-字段="publishLimitPauseMin">'
+     + '<span class="lb">分</span></div>'
+     + '<div class="hint">0=不暂停。这是<b>兜底</b> —— 先换号(4 毫秒),'
+     + '一圈号都撞限流才退回暂停</div></div>';
+
+  // ⭐ 主钮放底部(mockup v31 方案 B)。和「运行」屏那个大蓝钮「开始」同一套语言,
+  //    而且拇指够得到 —— 顶栏右上角在大屏手机上是最难点的位置。
+  h += '<div class="sp"></div>'
+     + '<button class="big" data-意图="存任务">' + (编辑中 === 'new' ? '新增' : '保存') + '</button>';
+
+  // 新建还没存过的任务没什么好删的,所以这一行只在【改已有任务】时出现
+  if (编辑中 !== 'new') {
+    h += '<div class="delrow" data-意图="删任务">删掉这个任务</div>';
+  }
+  return h;
+}
+
+/** 把草稿填进刚画出来的表单。⚠️ 走 value 属性不写进 HTML —— 免得引号和换行再转义一层。 */
+function 填回草稿() {
+  // ⚠️ 查【整个文档】不是 `#内容` —— 编辑器 2026-10-27 搬进抽屉了,
+  //    抽屉和 `#内容` 是两棵树,只查 `#内容` 会一个字段都找不到(= 编辑器失忆)。
+  // ⭐ 试连那份全文单独灌 —— 它【不是草稿的一部分】(没有 data-字段,
+  //    所以 收草稿 也不会把它收走),只是摆出来给人看和抄。
+  // ⚠️ 没变就不写:重绘 一般会把这棵树整个重建(那时本来就是空的),
+  //    但没重建的那几次能省下一次 5000 行的写入。
+  var 预框 = document.querySelector('[data-池预览]');
+  if (预框) {
+    var 全 = (快照.预览 && 快照.预览.全文) || '';
+    if (预框.value !== 全) 预框.value = 全;
+  }
+  document.querySelectorAll('[data-字段]').forEach(function (el) {
+    var k = el.getAttribute('data-字段');
+    el.value = (k === 'bulletList') ? (草稿.bulletList || []).join('\n')
+             : (草稿[k] == null ? '' : String(草稿[k]));
+  });
+}
+
+/** 把表单读回草稿 */
+function 收草稿() {
+  // ⚠️ 查【整个文档】不是 `#内容` —— 编辑器 2026-10-27 搬进抽屉了,
+  //    抽屉和 `#内容` 是两棵树,只查 `#内容` 会一个字段都找不到(= 编辑器失忆)。
+  document.querySelectorAll('[data-字段]').forEach(function (el) {
+    var k = el.getAttribute('data-字段'), v = el.value;
+    if (k === 'bulletList') {
+      草稿.bulletList = v.split(/\r?\n/).map(function (x) { return x.trim(); })
+                        .filter(function (x) { return !!x; });
+    } else if (el.type === 'number') {
+      草稿[k] = parseInt(v, 10) || 0;
+    } else {
+      草稿[k] = v.trim();
+    }
+  });
+}
+
+/* 日志里号名那一列要【封宽】。
+   ⚠️ 等宽字体里中日韩/假名比 ASCII 宽,所以按【格】算不按字算 ——
+      「我是入赘」4 个字算 8 格,「Eri (ジェリー)」13 个字算 16 格。
+   ⚠️ 名字长度没上限(用户自己改的),不封的话一行给正文剩不到一半。
+      封了之后最坏是截一刀,而当前号的全名在状态卡里一直写着。
+   🔴 这里【按 2 倍算,而真机上是 1.67 倍】—— 2026-11-01 机上量的
+      (ui-monospace:ASCII 6.0px / 中日韩 10.0px / 假名 9.97px;电脑 Chrome 才是整 2 倍)。
+      ⚠️ 这个偏差是【故意往宽里算】的:算宽了只会把名字多截一刀(安卓上中文名实际
+         到第 5 个字才满,我们第 5 个就截),算窄了会让那一行比预算长、挤出一行来。
+         两边取宽的那个,一份代码两个平台都不会涨行。别拿真机那个 1.67 回来改这里。 */
+var 号名封几格 = 9;
+function 截号名(n) {
+  var 格 = 0;
+  for (var i = 0; i < n.length; i++) {
+    格 += n.charCodeAt(i) > 0x2e80 ? 2 : 1;
+    if (格 > 号名封几格) return n.slice(0, i) + '…';
+  }
+  return n;
+}
+
+function 日志块(额外类, 行们) {
+  // ⚠️ 抽屉里那份过往日志【走同一个渲染】(一处定义,铁律 8)——
+  //    不然「号名染色 / 截断 / 省掉空号名」这几条要在两处各写一遍,迟早长歪。
+  var l = 行们 || (快照.日志 || []).slice(-14);
+  if (!l.length) return '';
+  // ⭐ 用户 2026-11-01:「运行日志中每一条都要写是哪个号发的,现在好像没有」。
+  //    号是记录上的字段(rotation.js 的 记() 自动补),这儿只管画。
+  // ⚠️ `<i>` 是为了把号名染个色 —— 一行里三样东西(时刻/级/号)都不染色就是一坨。
+  //    用 i 不用 span:这一块每条都要带,×14 条,标签短一点。字形在 CSS 里扳回不斜体。
+  // ⚠️ 号名可能是 null(这一条真的和号无关 —— 改任务库、拉剧集清单、没跑着的时候),
+  //    那就【整列省掉】,不留占位空格。
+  return '<div class="log' + (额外类 ? ' ' + 额外类 : '') + '" data-日志>' + l.map(function (x) {
+    return 时分秒(x.时间) + '  ' + x.级 + '  '
+         + (x.号名 ? '<i>' + esc(截号名(x.号名)) + '</i> ' : '')
+         + esc(x.文本);
+  }).join('\n') + '</div>';
+}
+
+// ══ 屏④ 账号 ══════════════════════════════════════════
+// 两态:视图 / 编辑轮换。⚠️ 最左那一格【两个模式都有、同一条 CSS 20px】,切模式时名字不横跳。
+/**
+ * 常驻的「开始之前」区(2026-11-10 用户:「应该要像小菇爱表白,一开始要有一个
+ * 设定提示区先在帐号那边页」)。几条规矩是从表白那块权限区抄来的:
+ *
+ * ⚠️ **常驻列表,不是「缺的时候冒一块提示」。** 全开好之后界面上一点痕迹都没有的话,
+ *    用户没法确认自己到底开了什么、想回头关掉也无从下手。
+ * ⚠️ 右边是【状态 + 常驻箭头 ›】,**不是 Switch**。这一下会跳去系统页面 ——
+ *    做成 Switch 会骗人:一拨就跳走、回来还是原样,看着像坏了。
+ * ⚠️ **没开的时候不许收起**,连箭头都不画:那是跑起来的前提,
+ *    收起来等于把唯一的入口藏了,新用户会卡在「点开始 → 跑不动」的循环里。
+ * ⚠️ 只画**读得到状态**的那一行。通知和「安装未知应用」现在原生没往快照里推
+ *    (`推权限()` 只推一个布尔),画成「—」就是在编界面 —— 所以它们只用文字说明。
+ *    要把它们也做成行,得改 Java = 层 1 = 重打 APK。
+ */
+/**
+ * `#横幅` 里那一块的内容(外壳是 `#横幅` 自己,见 刷横幅)。
+ *
+ * 🔴 **开好了就什么都不留**(2026-11-10 用户定的:「整块消失,留一行灰字
+ *    换放到设置那边去」)。确认「我到底开过没有」是**设置**该管的事 ——
+ *    见 画设置屏 入口层第一行那个「悬浮窗」。
+ * ⚠️ **没有标题行。**原来顶着「开始之前」+「还差 1 项」两层,
+ *    而这里**统共就一项** —— 用户:「最上面这行不需要,这只有一项而已」。
+ *    状态并进那一行本身:「悬浮窗 还没开 … 去开 ›」。
+ */
+function 浮窗块() {
+  var h = '';
+  h += '<div class="fr ckrow" data-去悬浮窗>'
+     // ⚠️ 开头那个 ⚠️ 是用户 2026-11-10 要的:「还可以像之前一样在前头加个⚠️符号」。
+     //    和别屏那条黄条(`刷横幅()` 里那句)对齐 —— 两处都以 ⚠️ 起头,
+     //    扫一眼就知道是同一件事在喊。
+     + '<span class="lb" style="font-size:15px;color:#6b5418">'
+     + '⚠️ <b>悬浮窗</b> 还没开</span>'
+     + '<span style="flex:1"></span>'
+     + '<span class="hint" style="color:#8a7340">去开 ›</span></div>';
+  h += '<div class="hint">没有它,页面退到后台 <b>67 秒</b>就会停摆,挂机跑不了。</div>';
+
+  // 🔴 受限设置**收成一行**,点开才摊。照「小菇爱表白」那边的结论:
+  //    「多数手机不需要,只有开关点不动时才要」——
+  //    它原先在我们这儿是全文摊着的,占了整块一半还最抢眼,
+  //    而真正要做的只有上面那一行。表白那边也返过工:
+  //    「同一件事三个入口…『打开应用信息』排在『去开启』前面,可它多数人根本不需要做」。
+  // ⚠️ 两种措辞:**问句**是给多数人看的(他们点不点都行);
+  //    原生确认挡着了就换成**陈述句** —— 那会儿它不是一种可能,是这台机器的实况。
+  h += '<div class="折" data-受限>'
+     + (受限挡着 ? '⚠️ 你这个包是下载装的 —— 多半要先解锁一次&nbsp;'
+                 : '开关是灰的、点不动?&nbsp;')
+     + (受限展开 ? '⌄' : '›') + '</div>';
+  if (受限展开) {
+    // 这一段是 2026-11-10 在模拟器上逮到的:安卓 17 上那个开关是**灰的**,
+    // 点了弹「App was denied access」。证据:packageSource=3(从下载的文件装的)
+    // + appop `ACCESS_RESTRICTED_SETTINGS: ignore`。用户从下载页下 APK 再点开装,
+    // 走的是同一条路 —— 不是模拟器特例。
+    h += '<div class="hint" style="color:var(--warn)">安卓 13 起,'
+       + '<b>从文件装的应用</b>要先解锁一次:<br>'
+       + '打开应用信息 → 点<b>右上角那三个点</b> → <b>允许受限设置</b><br>'
+       + '(个别品牌位置不同,找带「受限」字样的那一项)</div>';
+       // ⚠️ 这儿原来还接了一句一模一样的「(个别品牌位置不同…)」——
+       //    2026-11-11 加那颗钮时把它又写了一遍,**真机实拍才看出来重了**
+       //    (`mockup/受限设置-自动摊开-实拍.png` 那一版)。预览里也看得见,
+       //    是我只盯着「钮出来没有」没通读整段。拼 HTML 的东西,量完要整段读一遍。
+       // ⚠️⚠️ 那颗【打开应用信息】钮 1.6 起真有了(`主界面.桥.打开应用信息`)。
+       //    这儿原来写着「我们做不了…得等下个 APK」—— 过期了,已删。
+       //    别拿 去开悬浮窗() 顶替:那条跳的是悬浮窗页,上面没有那三个点。
+    // ⭐ 1.6 起真有这颗钮了。⚠️ **有桥才画** —— 旧原生没有 `打开应用信息`,
+    //    画出来点了没反应,那比没有还糟(铁律 14 那种「点了没反应」)。
+    //    这就是「能力记号」:看得见这个方法才画这颗钮。
+    if (window.安卓 && 安卓.打开应用信息) {
+      h += '<div class="fr"><div class="sm" data-开应用信息>打开应用信息</div>'
+         + '<span class="hint">跳过去之后点<b>右上角那三个点</b></span></div>';
+    } else {
+      h += '<div class="hint">(你这一版 App 还没有直达钮 —— 按上面的路径自己翻一下)</div>';
+    }
+  }
+  return h;
+}
+
+function 画账号() {
+  // ⚠️ 悬浮窗那一块**不在这儿** —— 它住在 `#横幅`(见 刷横幅),
+  //    这样账号/页面/任务三屏长一个样,而且页面屏那个被浏览器盖住的内容区碰不着它。
+  var a = 号们(), h = '';
+  if (!a.length) {
+    return '<div class="card"><div class="hint">还没有号。点右上角 <b>＋ 加号</b>,'
+         + '会开一个真的浏览器窗口让你登录。<br>'
+         + '登录本身<b>不脚本化</b> —— 微信 / QQ / 手机号 / 腾讯视频 App 扫码,你走哪条都行,'
+         + '中途可以切去别的 App 再回来。</div></div>';
+  }
+
+  if (编辑轮换) {
+    h += '<div class="card" style="background:var(--accbg);border-color:#cfe0ff;padding:7px 10px">'
+       + '<div class="hint" style="color:var(--acc)">'
+       // ⚠️ 【一行写得下】—— 量过:393 宽、可用 332px,原来那句「左边勾…右边…」346px,
+       //    差 14px 折成两行。去掉「左边/右边」正好收进一行(≈300px),而那两个词本来
+       //    就是废话:勾就在左边、钮就在右边,屏幕自己说得清。任务屏那句也是这个写法。
+       + '勾 = 参不参与轮换 · ▲▼ = 调顺序(<b>列表顺序就是轮换顺序</b>)<br>'
+       // ⚠️ 这第二行是【必须的】,不是客套:这个模式每一下都已经落盘了,
+       //    「取消」在别处(任务编辑器)丢的是没存过的草稿,在这儿丢的是**已经生效的改动**。
+       //    不写这句,用户会把它当成「关掉窗口」。
+       + '改完点下面「完成」· 右上角「取消」= 退回刚进来的样子</div></div>';
+  }
+
+  a.forEach(function (x, i) {
+    var 类 = 'prow' + (跑不了(x) || !x.参与轮换 ? ' norot' : '')
+           + (x.跑着 ? ' run' : '');     // ⚠️ 读快照字段,别自己拿 当前号id 算
+    h += '<div class="' + 类 + '" data-号="' + esc(x.id) + '">';
+
+    // 最左那一格:**两个模式都有,宽度同一条 CSS(20px)** —— 切模式时名字不横跳。
+    // ⚠️ 视图模式放 ▸/▾。它原来长在名字里(`.nm` 的前缀),搬出来有两个好处:
+    //      ① 这一格在视图模式下不是空的 —— 空着占 20px 换「不横跳」,那是 2026-10-30
+    //         否掉过的交易(头像那 30px 就是这么没的);装着 ▸ 就是**本来就要画的东西换了个位置**
+    //      ② 名字行少一个会动的前缀(▸ 和 ▾ 宽度还不一样),名字起始 x 从此一动不动
+    // ⚠️ `data-展开` 要跟着搬到这一格上 —— 不然点 ▸ 没反应(铁律 14:最难查的那种)。
+    //    编辑模式这一格上**没有** `data-展开`,而 派发 那边还有 `!编辑轮换` 守着,两道。
+    h += 编辑轮换
+       ? '<div class="slot"><div class="ck' + (x.参与轮换 ? ' on' : '')
+         + '" data-勾="' + esc(x.id) + '">' + (x.参与轮换 ? '✓' : '') + '</div></div>'
+       : '<div class="slot tri" data-展开="' + esc(x.id) + '">'
+         + (展开的 === x.id ? '▾' : '▸') + '</div>';
+
+    h += '<div class="meta" data-展开="' + esc(x.id) + '">';
+    // ⚠️ 名字要自己包一层 .nm —— 截断归它,徽章不参与(见 .name.pn 的注释)
+    // ⚠️ ▸/▾ 不在这儿了 —— 2026-11-01 搬进最左那一格(见上面)。`#N` 留着:
+    //    编辑模式是在排顺序,那会儿最需要看见序号,搬走就只剩「靠位置自己数」。
+    h += '<div class="name pn"><span class="nm">'
+       + '#' + (i + 1) + ' ' + esc(x.名字) + '</span>'
+       // ⚠️ 原来这里写的是 `快照.当前号id === x.id` —— 面板自己算,漏了「还在不在跑」。
+       //    停了之后 当前号id 是【刻意】留着的(运行屏要显示上一段跑的是谁),
+       //    于是这个徽章就永远挂着。判据收在 rotation.js 的 跑着吗() 里(铁律 8)。
+       // ⚠️⚠️ 2026-10-30 用户定的顺序,**别再打乱**:
+       //    「所谓帐号的状态必须显示,是指帐号有效无效这种,能不能用,要在那让用户知道,
+       //      至于运行中或任务失败,只是次要的,所以顺序上必须从重要的开始。」
+       //
+       //    甲类 · 这个号能不能用 —— **必须,排第一,永远恰好有一个**
+       //         有效 / 失效 / 状态待确认 / 信息库破损,须重启   ← 全在 有效标() 里,互斥
+       //    乙类 · 这一趟跑得怎么样 —— 次要,可有可无
+       //         任务运行中 · 任务失败
+       //    丙类 · 用户自己的设置 —— 次要
+       //         不轮换
+       //
+       // 🔴 改之前「任务失败」是**长在甲类里面**的(有效标 的一个 return),
+       //    于是跑挂了的号只看得到「任务失败」,**永远看不到它到底有效没有** ——
+       //    而那恰恰是用户最想知道的那件事。2026-10-24 已经为它们不共用一个「词」
+       //    改过一次了,这次是连**位置**也分开:两件事,两个标,甲在前。
+       + (!编辑轮换 ? 有效标(x) : '')
+       + (x.跑着 ? ' <span class="badge">任务运行中</span>' : '')
+       + (!编辑轮换 && x.跑挂了 ? ' <span class="badge dead">任务失败</span>' : '')
+       // ⚠️ 只给例外挂小标 —— 12 个号里 10 个参与时,扫 2 个灰标比扫 10 个勾快(v13)
+       + (!编辑轮换 && !x.参与轮换 ? ' <span class="badge norot">不轮换</span>' : '')
+       + '</div>';
+    h += '<div class="rowinfo">' + 号摘要(x) + '</div></div>';
+
+    // 编辑模式右边让给 ▲▼;视图模式才出操作钮(UI决策.md §2,从 v14 变体②)
+    //
+    // ⭐⭐ 2026-11-05 ⠿ 拖动【删了】,换成两个钮(照插件 content.js:1424 moveProfile)。
+    //    用户:「帐号列表中用 ⠿ 冒似也容易坏掉,我觉得可以用会最简单的方式」。
+    //    不是「容易坏」—— 是**一次都没成功过**。当天在模拟器上拍到三连证:
+    //      ① 行确实跟着手指走(pointermove 通的)
+    //      ② 松手后行【卡在半路】,还挂着 .dragging + transform = `松()` 从来没跑过
+    //      ③ accounts.json 一个字节没变 = `重排` 意图从来没发出去
+    //    病根:`动()` 里那句 `兄弟.after(行)` 把【正在被拖的那一行】在 DOM 里搬了家,
+    //    而 pointer capture 钉在手柄那个节点上 —— 节点一搬家 capture 就作废,
+    //    之后的 pointerup 落在「手指底下碰巧是谁」身上。手柄跟着行偏移走了,
+    //    于是 pointerup 几乎永远落不回手柄,`松()` 不跑 -> 顺序不存、行卡住。
+    //    ⚠️ 这【不是概率性不稳】:行真的跨过别人 = 一定搬家 = 一定作废;
+    //       不跨的那次倒是能松手,可那一次本来就没换顺序(发出去的是原序)。两头都不成立。
+    //
+    // ⚠️ 用户第二句「帐号列表旁的编号不会随着顺序变化」是【同一个病的另一半】:
+    //    `#N` 是渲染那一刻写死在节点里的字,行在 DOM 里搬家,字跟着搬。
+    //    只有重绘才会重算它,而重绘要等快照变,快照要等 `重排` 落盘 —— 意图没发出去,
+    //    就永远不重绘。换成 ▲▼ 之后这一半【自己就好了】:每按一下都是
+    //    重排 -> 落盘 -> 快照变 -> 重绘 -> `#N` 重算(≤ 250ms 一拍)。别再给 `#N` 单独补逻辑。
+    //
+    // ⚠️ 首行禁 ▲ / 末行禁 ▼ 用的是原生 `disabled` —— 禁掉的钮连 click 都不发,
+    //    所以 派发 那边收不到;那边还是又挡了一道边界,两道都留着(便宜)。
+    h += 编辑轮换
+        ? '<div class="reord">'
+          + '<button data-上移="' + esc(x.id) + '"' + (i === 0 ? ' disabled' : '') + '>▲</button>'
+          + '<button data-下移="' + esc(x.id) + '"' + (i === a.length - 1 ? ' disabled' : '') + '>▼</button>'
+          + '</div>'
+        : '<div class="ops">'
+          // ⭐ 主操作是「浏览」—— 用这个号的仓开腾讯页面。
+          //    它同时是【号有没有效】的唯一硬证据:右上角有没有那个头像。
+          // ⚠️⚠️ 2026-10-29 用户:「无帐号信息的话,点浏览也不会恢复吧?
+          //    此时应该要点重新登陆吧?」—— 对的。`掉线` = 罐子里没号标识 cookie,
+          //    这时 `浏览`(意图 开浏览器)只会开出一个登出的腾讯页面,**救不回来**;
+          //    救得回来的是 `重新登录`(意图 开登录窗,和「加号」同一条流水线)。
+          //    而那个钮原来只长在明细里 —— 行上不换的话,摘要里那句指路
+          //    就指着一个看不见的钮。
+          // ⚠️ **空壳除外**:空壳也满足 掉线,但它这会儿登了也存不住(铁律 20),
+          //    得先重启 App。给它挂「重新登录」= 骗用户去冒险,
+          //    和「没备份就不画还原钮」是同一条规矩(下面那个假入口的注释)。
+          //    空壳自己有红色告示说该干什么,这里不抢话。
+          // ⚠️ 正在看着的号也除外 —— 那种时候「回页面」才是手边要的。
+          + (x.掉线 && !x.仓空壳 && 快照.浏览中的号 !== x.id
+             // ⚠️ 跑着的那个号不给这条路(理由见 画明细 里那段)——
+             //    退回「浏览」,它由 `这页是引擎的` 管着,安全。
+             ? (x.跑着
+                ? '<button class="hot" data-浏览="' + esc(x.id) + '">回页面</button>'
+                : '<button class="hot" data-重登="' + esc(x.id) + '">重新登录</button>')
+             : '<button class="hot" data-浏览="' + esc(x.id) + '">'
+               + (快照.浏览中的号 === x.id ? '回页面' : '浏览') + '</button>')
+          + '</div>';
+    h += '</div>';
+
+    // 🔴 空壳告示【不用展开就看得见】—— 这条太要紧,藏在详情里等于没说。
+    //    编辑轮换态也不挂,那一屏是在排顺序,别塞大块红字。
+    if (!编辑轮换) h += 空壳告示(x);
+    if (!编辑轮换 && 展开的 === x.id) h += 画明细(x);
+  });
+
+  // ⭐⭐ 2026-11-05 「完成」从右上角搬到【底下的大钮】,右上角换成「取消」。
+  //    用户:「现在这个编辑轮换的画面完成不在下方,似乎跟编辑任务不太一样,
+  //    可以改到下方,然后右上角加取消吗」—— 就是任务编辑器那一套(mockup v31 方案 B):
+  //    **主钮在底下**(拇指够得到;大屏手机上右上角是最难点的位置),
+  //    **退出路在右上角**(编辑器那个「取消」也在那儿,同样是 `.tbtn mute`)。
+  // ⚠️ `.sp` 是「只长不缩」的空白:号少的时候把钮顶到屏幕最底下,号多了它自己变 0、
+  //    整页滚(一个界面一个滚动容器,见 .listwrap 那段)。和任务屏「开始」同一条规则。
+  if (编辑轮换) {
+    h += '<div class="sp"></div>'
+       + '<button class="big" data-意图="退出编辑">✓ 完成</button>';
+  }
+  return h;
+}
+
+/**
+ * 一行摘要。⚠️ 两个证据分开说,不合并:
+ *   · 帐号信息里有没有号标识 cookie —— 快,不用开窗,但【只能说明登过】
+ *   · 页面右上角有没有头像 —— 慢(要开一次浏览器),但这才是【现在还有没有效】
+ * 两者不一致本身就是信号:cookie 在但页面显示「登录」= 登出残留,那个号其实废了。
+ *
+ * ⚠️ 2026-10-29 起徽章上这两个都写「失效」(用户拍板,结果一样:都发不出评论)。
+ *    **摘要行是唯一分得开它们的地方** —— 「无帐号信息」vs「失效 · 3 小时前」。
+ *    所以这两段话一个字都别省,也别把它们也合并成同一句。
+ */
+function 号摘要(x) {
+  var 出 = [];
+
+  // ⚠️⚠️ 2026-10-31 这一行的顺序改成和【徽章】同一套:甲 -> 乙 -> 丙。
+  //    那四类的定义在 画账号列表 里,别在这儿另立一套。用户当时那句
+  //    「顺序上必须从重要的开始」管的不只是徽章,这一行也算。
+  //    改之前是「帐号编号 -> 页面开着 -> 有效/失效 -> 任务失败 -> 今日 N 条」,
+  //    甲类排在第三 —— 前面那两段一个答「这是哪个号」、一个答「窗口开没开」,
+  //    都不答「这个号能不能用」。
+  // 💡 顺序【不是】为了保谁不被切 —— 今天根本切不到。2026-10-31 在 预览.py 上量过:
+  //    .rowinfo 是**两行夹断**(-webkit-line-clamp:2),一行 297px、两行预算 594px,
+  //    而最长的那条(失效 · 3 小时前 · 任务失败(...) · 页面开着·在看 · 帐号编号 10 位·手机号登录)
+  //    量下来 366px,占两行,一个字都没丢。所以这里排的就是单纯的「重要的先说」。
+  //    ⚠️ 下面那段 2026-10-29 的话是【单行 ellipsis 时代】留的,那会儿真的切得到。
+  //       那些数字(253px / 274px / 省下 51px)照旧有效,别因为现在切不到就把 MB 加回来;
+  //       而万一哪天又收回单行,挨切的那一头已经换人了 —— 现在尾巴上是 帐号编号,
+  //       它是这一行里唯一**在明细里有副本**的那段(明细的 kv('帐号编号')),切得起;
+  //       原来尾巴上是「3 小时前」,那个整个 App 只有这一行说得出来,切不起。
+
+  // ── 甲类 · 这个号能不能用 ────────────────────────
+  // ⚠️ 这一类永远恰好有一句:下面两个 if 互斥 —— `掉线` 和「指纹为空」在
+  //    rotation.js 里是字面上同一个条件(`a1.掉线 = !认.指纹`,2618 行)。
+  //    ⚠️ 两个条件【都照原样留着】,没合并成一个。万一哪天它们走岔了,
+  //       这一行顶多多说一句或少说一句,不会凭空编出一个状态来。
+  // ⚠️ 这个结论是【存下来的】,可能是上次开 App 时查的 ——
+  //    所以必须把「什么时候查的」一起说。不说的话用户会当成现在的状态。
+  // ⚠️⚠️ 2026-10-29 用户:「但这都无帐号信息在里面了,难道不是失效吗?」—— 对的,我上一版
+  //    把它当成「设计如此」说轻了。去核实过:rotation.js 里是 `a1.掉线 = !认.指纹`,
+  //    **掉线 和「指纹为空」是字面上同一个条件**。开机那一瞬也对得上
+  //    (账号表 load 里写死 `掉线: true`,而 指纹 不落盘 = undefined,两个一起成立)。
+  //    所以 `无帐号信息` 和徽章 `失效` 说的是同一件事,一行里再打一个
+  //    一天前存下来的 `有效` 就是**纯粹的错** —— 罐子里连号标识都没了,
+  //    页面不可能还登着,那个 'in' 是不可能成立的旧结论。
+  // -> 掉线时这一整段【不打】。不是省字,是那三句在这个前提下全都没有意义:
+  //    'in' 不可能、'out' 是废话(徽章说过了)、'状态待确认' 是假的(已经确认坏了)。
+  // ⚠️ 掉线为假时三句一个字都别动 —— 那边「cookie 在、页面却说登出」才是
+  //    这个函数存在的理由(见上面的函数注释),和那次改的是反方向。
+  if (!x.掉线) {
+    var 几时 = 多久以前(x.上次查于);
+    if (x.页面登录态 === 'in') 出.push('有效' + (几时 ? ' · ' + 几时 : ''));
+    else if (x.页面登录态 === 'out') 出.push('失效' + (几时 ? ' · ' + 几时 : ''));
+    else 出.push('状态待确认 —— 点「浏览」');
+  }
+  // ⚠️ 指的是「重新登录」不是「浏览」—— 罐子里没号标识 cookie,开页面只会看到登出态,
+  //    救得回来的只有重登。空壳不指(它得先重启 App,红色告示在说这件事)。
+  // ⚠️ 「点「浏览」」那个指路没丢 —— 在上面那个 `状态待确认` 里。
+  //    新号(从没登过)走的是这一条,照样看得见该干什么。
+  if (!x.指纹) 出.push(x.仓空壳 ? '无帐号信息' : '无帐号信息 —— 点「重新登录」');
+
+  // ── 乙类 · 这一趟跑得怎么样 ─────────────────────
+  // ⚠️ 徽章只有四个字,说不完「为什么失败」。原因是状态机记下来的,直接报出来。
+  if (x.跑挂了) 出.push('任务失败' + (x.挂了因 ? '(' + x.挂了因 + ')' : ''));
+  if (!跑不了(x) && x.今日已发) 出.push('今日 ' + x.今日已发 + ' 条');
+
+  // ── 身份和现场 · 这是哪个号、窗口开没开 ────────────
+  // 都不是「状态」:一个是身份证号,一个是此刻的现场。按「从重要的开始」排在最后,
+  // 也正好让那串长度不受控的 UID 去尾巴上挨 ellipsis。
+  // ⚠️ 看窗口活没活,【不是】看「现在显示的是不是它」—— 多窗之后
+  //    开了 3 个窗只有 1 个在前台,其余两个照样是开着的
+  if (x.窗口 === '活着') 出.push(快照.浏览中的号 === x.id ? '页面开着·在看' : '页面开着');
+  // ⚠️⚠️ 2026-10-29:「帐号信息 NNMB」从这一行【撤了】,只留在明细的「信息大小」。
+  //    量过:面板里这一行的可用宽度只有 253px(后来头像撤了,涨到 292px)。
+  //    换成真 UID(10 位数字)之后,连最短的
+  //    「帐号信息 40MB · 帐号编号 1832004571·微信登录 · 有效 · 3 小时前」
+  //    都要 274px —— 而那会儿 ellipsis 吃掉的正好是尾巴上的「3 小时前」,
+  //    「这个结论是什么时候查的」只有这一行说得出来,切不起。
+  //    旧的 6 位哈希版要 253px,也就是【一格不剩地刚好压线】,不是险过。
+  //    撤掉那段腾出 51px,UID 长短再变也还有余。
+  //    ⚠️ 2026-10-31 补:这一行后来改成了两行夹断,上面这些数字是单行时代量的。
+  //       结论不变:撤掉 MB 省下的 51px 照样是省下的,别又加回来(见函数开头那段)。
+  // ⚠️ 空壳【不靠】这个数字发现 —— 它有自己的检测(Java 侧 池.仓cookie空壳)
+  //    和自己的徽章「信息库破损,须重启」。所以撤了不会漏报。
+  // ⚠️ 「帐号编号」就是 cookie 里 v_vuserid 的【原值】,也就是腾讯的 UID ——
+  //    网页和网址上打的是同一串,对得上。2026-10-29 之前这里是个 6 位哈希,
+  //    用户:「隐藏了反而不好辨别,可以打出来」。
+  // ⚠️ 长度不受我们控制(实测微信号 10 位 —— 用户给的真值 2770239184;
+  //    QQ 号还没样本)。行末有 ellipsis 兜着,完整值在明细里。
+  if (x.指纹) 出.push('帐号编号 ' + x.指纹 + (x.方式 ? '·' + 方式名(x.方式) : ''));
+
+  return esc(出.join(' · '));
+}
+
+/**
+ * 名字后面那个标。**它回答的是「这个号会不会被轮到」。**
+ *
+ * ⚠️⚠️ 2026-10-24 改了顺序。原来是「页面态压过 cookie 态 —— 它才是真凭据」,
+ *    那句话对【有没有效】是对的,但这个标在账号列表上,用户拿它判的是【能不能跑】,
+ *    而那个闸是 `掉线`(体检看 cookie 罐),不是页面态 ——
+ *    `能跑的号们` filter 的就是 `!a.掉线`。
+ *    后果:cookie 罐空了、但上次开页面时是好的那种号,会一直挂着绿色的「能用」,
+ *    轮换时却被直接跳过。用户 2026-10-24 撞到:「为何表示有 2 个号,
+ *    却只有『我是入赘』这一个号在跑」—— 列表上两个号写着能用,实际只有一个跑得了。
+ *    (而且原来那个顺序下,`if (x.掉线)` 这一支【根本到不了】:
+ *     只要这个号历史上被页面验过一次,前两支就先返回了。)
+ * ⚠️ 两个证据【都还在摘要行里】,一个都没少说(见 号摘要)。这里只是把
+ *    「会不会被轮到」提到最显眼的位置。
+ */
+/**
+ * 🔴 地基塌了:这台 WebView 不支持多数据仓。
+ *
+ * ⚠️ 挂在【每一屏】的最上面,不是只挂账号屏 —— 这不是某个号的问题,
+ *    是整个 App 的前提没了。不说清楚的话,用户看到的是
+ *    「轮换在跑,但好像一直是同一个号在发」,查不出所以然。
+ * ⚠️ 这个状态下开跑会被状态机拦住(见 rotation.js 的 开跑),这里只负责说清楚。
+ */
+function 地基塌了条() {
+  if (!快照 || !快照.多仓不支持) return '';
+  return '<div class="card" style="border-color:#f0c2c0;background:var(--badbg)">'
+       + '<div class="hint" style="color:var(--bad)">'
+       + '🔴 <b>这台机器的 WebView 不支持多份帐号信息</b>'
+       + (快照.webview版本 ? '(现在是 ' + esc(快照.webview版本) + ')' : '') + '<br>'
+       + '「一个号一份帐号信息」整套都架在它上面 —— 没有它,<b>所有号会共用同一份</b>:'
+       + '换号不生效、cookie 互相串。<b>开跑已经被拦住了。</b><br>'
+       + '去系统的应用商店升级 <b>Android System WebView</b>(要 113 版以上)再回来。'
+       + '</div></div>';
+}
+
+/**
+ * 这个号这一趟发不发得出评论 —— 三个原因各自独立,界面在这一处或起来。
+ *
+ * ⚠️⚠️ **这是纯显示判据**(红头像 / 灰底 / 要不要显示「今日 N 条」),
+ *    **不是轮换的闸**。轮换那一边是 rotation.js 的 `能跑的号们`,
+ *    它只看 `参与轮换 && !掉线 && !挂了` —— 别拿这个函数去推它。
+ * ⚠️ 2026-10-29 加进 `页面登录态==='out'`:既然徽章上它和 `掉线` 都写「失效」,
+ *    头像就不能一个红一个灰 —— 两个号都标「失效」却长得不一样,正是看不懂的来源。
+ *    (发不出评论这件事两个都成立,只是 out 要等轮到它、开窗、8 秒宽限才换号。)
+ */
+function 跑不了(x) { return !!x.掉线 || !!x.跑挂了 || x.页面登录态 === 'out'; }
+
+function 有效标(x) {
+  // 🔴 空壳排在最前面 —— 它比「能不能跑」还要紧:
+  //    这种帐号信息你现在登得上、看着也正常,**一重启全没**(铁律 20)。
+  if (x.仓空壳) return ' <span class="badge dead">信息库破损,须重启</span>';
+  // ⚠️⚠️ 2026-10-29 用户拍板:`掉线` 和 `页面登录态==='out'` **共用「失效」**。
+  //    理由成立 —— 对用户来说结果一样,两个都发不出评论:
+  //      · 掉线           = 轮换时直接跳过(`能跑的号们` filter 的就是它)
+  //      · 页面登录态 out = 轮到它时当场查头像,确认登出就换号(`等开跑登录`)
+  //    ⚠️ **没有**因此把 out 变成轮换硬闸(同一天讨论过,否决了)。两个坑:
+  //      ① out 只在「轮到它」时才刷新 —— 当成硬闸就再也轮不到 = 单向陷阱,
+  //         只能靠手动点「浏览」救回来。现在每轮重查,页面上重登了自己就好。
+  //      ② 这个结论本来就会误判(腾讯先渲染登出头),所以才有 登出宽限 + 登录态要连着。
+  //         误判 out 现在只是显示问题;当成硬闸就变成「闪一下 = 永久除名」。
+  if (x.掉线) return ' <span class="badge dead">失效</span>';
+  // ⚠️⚠️ 「任务失败」**不在这个函数里**(2026-10-30 搬走了)。这里只回答甲类那一个问题:
+  //    「这个号能不能用」。跑挂了是**这一趟**的事,帐号信息可能好端端的 ——
+  //    2026-10-24 已经为它们不共用一个「词」改过一次,这次连**位置**也分开:
+  //    它现在是行上一个独立的乙类徽章,排在甲类后面。
+  //    放回来的话,跑挂了的号就又看不到自己到底有效没有了。
+  if (x.页面登录态 === 'in')  return ' <span class="badge">有效</span>';
+  if (x.页面登录态 === 'out') return ' <span class="badge dead">失效</span>';
+  return ' <span class="badge norot">状态待确认</span>';
+}
+
+/**
+ * 信息库破损的那条告示。⚠️ 徽章再长也说不完【该怎么办】——
+ *    而这个状态下用户最容易做的事(再登一次)恰恰是白费力气。
+ *    照 UI决策.md 的老规矩:原因和去处在同一个地方,不弹窗不 toast。
+ */
+function 空壳告示(x) {
+  if (!x.仓空壳) return '';
+  return '<div class="card" style="border-color:#f0c2c0;background:var(--badbg);margin-top:6px">'
+       + '<div class="hint" style="color:var(--bad)">🔴 <b>这个号的信息库被清空了</b> —— '
+       + '现在登得上也<b>存不住</b>,一重启就没。<br>'
+       + '先<b>重启一次 App</b>(让 WebView 把库重建起来),再登这个号。</div></div>';
+}
+
+function 画明细(x) {
+  var h = '<div class="detail">';
+  // ⚠️ 这一行印的是 `acc_N` —— 它是【仓名】(WebView 数据仓 + cookie 备份档
+  //    + 待导入落点 + 窗口的键),不是列表序号。
+  // 🔴 原来叫「帐号信息」,用户 2026-11-09 读成了序号:「acc_1 这种加了顺序的
+  //    会乱掉…这个是必要的吗?」—— 把一个内部名字摆在「帐号信息」这个词底下,
+  //    确实像个编号。改叫「信息库名」,和徽章「信息库破损,须重启」对上。
+  // ⚠️⚠️ **界面上不解释「只保证唯一、不保证连续」**(用户拍板)——
+  //    那是实现细节,摆在明细里只会让人去琢磨一个本来不用管的东西。
+  //    要讲就讲在开发文档里:mockup/UI决策.md「账号行怎么标」那一节 + CLAUDE.md 21.5。
+  h += kv('信息库名', esc(x.id));
+  // ⚠️ 帐号编号只回答「这两份帐号信息是不是同一个号」。两份同一个号【不是】串号 ——
+  //    你本来就可能拿同一个号登两次。所以这里只陈述,不下判词。
+  h += kv('帐号编号', x.指纹 ? esc(x.指纹) + (x.方式 ? ' · ' + 方式名(x.方式) : '') : '—(这里没有帐号信息)');
+  h += kv('信息大小', MB(x.仓大小));
+  h += kv('窗口', esc(x.窗口));
+  var 登 = 登录时间(x.上次登录);
+  if (登) h += kv('上次登录', esc(登.文));
+  h += kv('今日', x.今日已发 + ' 条' + (x.今日被限流 ? ' · 被限流 ' + x.今日被限流 + ' 次' : ''));
+  // ⭐ cookie 备份。⚠️ 【必须把几时备的一起写出来】——「有备份」和「备份是半小时前的」
+  //    是两回事:三天前那份还原回来也是个过期的号。和 上次查于 同一条规矩。
+  h += kv('信息备份', x.备份于
+          ? MB(x.备份字节) + ' · ' + 多久以前(x.备份于)
+          : '—(还没备过)');
+
+  // 近 7 天:一排迷你柱 + 虚线标目标 50(2 剧 × 25)。0 的那天是灰柱。
+  var 近7 = x.近7天 || [];
+  if (近7.length) {
+    var 目标 = 50, 顶 = Math.max(目标, Math.max.apply(null, 近7.map(function (d) { return d.条数; })));
+    h += '<div class="bars"><div class="goal" style="bottom:' + (目标 / 顶 * 42) + 'px"></div>'
+       + 近7.map(function (d) {
+           return '<div class="bar' + (d.条数 ? '' : ' zero') + '" style="height:'
+                + Math.max(2, d.条数 / 顶 * 42) + 'px"></div>';
+         }).join('') + '</div>';
+    h += '<div class="barx">' + 近7.map(function (d) {
+           return '<span>' + d.日期.slice(5).replace('-', '/') + '</span>';
+         }).join('') + '</div>';
+  }
+
+  h += '<div class="hint" style="margin-top:6px">'
+     + '⚠️ <b>有帐号信息 ≠ 号还有效</b>。token 可能早失效了(插件叫这个「登出残留态」)。'
+     + '要确定,点<b>浏览</b>看页面右上角有没有头像 —— 那才是硬证据。</div>';
+  // ⚠️ 2026-09-25 从六个砍到三个。砍掉的三个和理由:
+  //    · 看页面(放大窗口)—— 老悬浮窗路径:把窗撑成全屏只读浮层盖住整个 App。
+  //      底盘有「页面」TAB 之后它既多余又危险(悬浮窗吃触摸,锁死过手机)
+  //    · 预热 —— 不是账号操作,是开跑前的性能优化,而且要先勾任务,这屏没那个上下文
+  //    · 改名 —— 插件压根没有。名字现在收编那一刻就从 cookie 起好了(起名/挑昵称),
+  //      不会再出现「新号 N」,也就没什么好改的
+  //    关窗口挪去「页面」TAB —— 窗口是那个 TAB 的东西,不是账号的属性。
+  // 🔴 **引擎正站在这个号身上时,「重新登录 / 删号」两个钮不画**(2026-11-09)。
+  //    它们会伤到正在跑的那一趟:删号把引擎永久卡住(当前号/在途的发送都成了悬空),
+  //    重登发 `导航到` 把引擎正在发的那页开走(铁律 26「一个页面只能有一个司机」)。
+  // ⚠️ **不画,不是画一个灰的**(18.10「不留灰钮」)。
+  // ⚠️ 只对**这一个号**不画 —— 别的号照常全开,那正是 26 要保的
+  //    (号失效了就该当场去重登)。「导出 / 还原备份 / 浏览」也照常:
+  //    导出只读、还原要重启才生效、浏览由 `这页是引擎的` 管。
+  // ⚠️ 状态机那头还有一道硬闸(`跑着吗` -> 记一句 + break)。两道不是冗余:
+  //    这儿管「别让人看见一个会坏事的钮」,那儿管「谁绕过面板发意图都不行」,
+  //    而且它会留下一句话,不是铁律 14 那种「点了没反应」。
+  h += '<div class="row" style="margin-top:9px">'
+     + '<button class="ghost" data-浏览="' + esc(x.id) + '">浏览</button>'
+     + (x.跑着 ? '' : '<button class="ghost" data-重登="' + esc(x.id) + '">重新登录</button>')
+     + '<button class="ghost" data-导出="' + esc(x.id) + '">导出</button>'
+     // ⚠️ 没备份就【不画这个钮】—— 按下去只会得到一句「没有备份」,那是个假入口
+     + (x.备份于 ? '<button class="ghost" data-还原="' + esc(x.id) + '">还原备份</button>' : '')
+     + (x.跑着 ? '' : '<button class="ghost" data-删="' + esc(x.id) + '">删号</button>')
+     + '</div>'
+     + (x.跑着
+        ? '<div class="hint" style="color:var(--warn);margin-top:6px">'
+          + '⚠️ <b>这个号正在跑</b> —— 「重新登录」和「删号」先藏起来了:'
+          + '前者会把它正在发的那页开走,后者会让这一趟卡死。'
+          + '要动它,先按<b>停止</b>,或者等它换到下一个号。</div>'
+        : '')
+     + '<div class="hint" style="margin-top:6px">'
+     + '<b>导出</b> = 把这个号的登录态存成一个 32KB 的文件(只有 cookie,不含缓存)。'
+     + '重装 App、换机器都能用它把号拿回来。'
+     + '⚠️ <b>那个文件就等于这个号</b> —— 别发给别人。</div>';
+  if (x.备份于) h += '<div class="hint" style="margin-top:6px">'
+     + '<b>还原备份</b> = 把 ' + 多久以前(x.备份于) + '那份帐号信息换回来,'
+     + '号掉了可以试试。<b>⚠️ 要重启 App 才生效</b>(和导入一样 —— 跑着的 WebView '
+     + '把信息库占着,这一刻盖进去会被它盖回来)。</div>';
+  // ⚠️ 排了还原到重启之间,界面【必须】说得出「为什么点了没变化」,
+  //    不然用户只会以为这个钮坏了。
+  // ⚠️ 告示里直接放钮 —— 读完还要自己翻去设置屏找,那是在考验耐心。
+  //    「原因和去处在同一个地方」,UI决策.md 的老规矩。
+  if (x.排了还原) h += '<div class="card" style="border-color:var(--acc);margin-top:6px">'
+     + '<div class="hint">⏳ <b>备份已经排好了</b> —— <b>重启 App</b> 之后这个号才会换成'
+     + '备份里那一份。</div>'
+     + '<div class="row" style="margin-top:6px">'
+     + '<button class="ghost" data-意图="要重启App">现在重启</button></div></div>';
+  return h + '</div>';
+}
+
+/**
+ * 页面 TAB 顶上那条窗口切换条。
+ *
+ * ⚠️ 只有【2 个以上】窗口才显示 —— 一个窗的时候没得切,那一行是纯浪费高度。
+ * ⚠️ 顺序 = 最近用过的在前(状态机排好的)。所以最右边那个永远是
+ *    「窗口满了会被关掉的下一个」,用户看得见。
+ * ⚠️ 正在跑的那个号带个绿点 —— 它是唯一关不掉的,得让人看出来为什么叉点不动。
+ */
+/**
+ * 页面 TAB 的账号页签条。
+ *
+ * ⚠️ 2026-10-24 起【一直显示】,哪怕只开 1 个窗。
+ *    原来「少于 2 个就不显示」,于是关闭入口会随窗口数在
+ *    「顶栏的『关掉』」和「页签上的 ×」之间跳来跳去 ——
+ *    用户问「这俩有什么不同」正是因为这个。入口永远在同一个地方。
+ *
+ * ⚠️ 正在跑的那个号【没有 ×】—— 它本来就关不掉(腾地方 里挡着)。
+ *    给个绿点标出来,别让用户点了没反应。
+ */
+function 画窗口条() {
+  var 条 = document.getElementById('窗口条');
+  if (!条) return;
+  var 窗们 = (快照 && 快照.窗口们) || [];
+  if (当前页 !== '页面' || !窗们.length) { 条.className = 'tabs'; 条.innerHTML = ''; return; }
+  条.className = 'tabs on';
+  条.innerHTML = 窗们.map(function (w) {
+    return '<span class="tab' + (w.在看 ? ' now' : '') + '" data-切窗="' + esc(w.号id) + '">'
+         + (w.跑着 ? '<span class="run">跑</span>' : '')
+         + esc(w.名字)
+         + (w.跑着 ? '' : '<span class="x" data-关窗="' + esc(w.号id) + '">×</span>')
+         + '</span>';
+  // ⚠️ 这里【不显示上限】。原来写「2 / 3 窗」,用户读成了「3 个里的第 2 个」——
+  //    上限是设置项,在设置屏看就够了,不该挤在这条上制造歧义。
+  }).join('') + '<span class="tabsn">' + 窗们.length + ' 个窗</span>';
+}
+
+/**
+ * 跑条 —— 跑的时候页面屏上那条横幅。
+ *
+ * ⚠️ 只在「页面」屏出现。别的屏有自己的运行信息(屏① 整屏都是),这条是给
+ *    「我正看着页面,它到底在干嘛」用的。
+ * ⚠️ 干跑黄 / 真发红。真发是唯一会在别人评论区留下东西的状态,
+ *    不该和测试长一个样(打样 v28 ③)。
+ * ⚠️ 右边那个小片是【阶段】,直接读快照的 `这条卡在` —— 那是状态机自己报的,
+ *    界面不另算一份(铁律 8)。两条之间没有在途的那一条时,退回显示运行状态。
+ */
+function 画跑条() {
+  var 条 = document.getElementById('跑条');
+  if (!条) return;
+  if (当前页 !== '页面' || !在跑()) { 条.className = 'runbar'; 条.innerHTML = ''; return; }
+  var 干 = !!快照.干跑;
+  条.className = 'runbar on ' + (干 ? 'gan' : 'real');
+  条.innerHTML =
+      (干 ? '⚠️ <b>干跑</b> · 模拟发送,不会真的发出去'
+          : '🔴 <b>真发</b> · 发出去的是真评论')
+    + '<span class="stage">' + esc(快照.这条卡在 || 快照.当前状态 || '') + '</span>';
+}
+
+function 方式名(m) {
+  return m === 'wx' ? '微信登录' : m === 'qq' ? 'QQ 登录' : m === 'ph' ? '手机号登录' : m;
+}
+
+/**
+ * 抽屉(打样 v38)。⚠️ 2026-11-08 起【只装一样东西:过往运行日志】。
+ *
+ * 编辑任务那一支搬走了 —— 它现在是 `重绘` 里 `当前页 === '任务'` 下的一页,
+ * 理由见 CSS 里 `body.编辑态` 那段(抽屉的形状和手机键盘必然打架)。
+ *
+ * ⚠️ 它和 `内容` 是【两棵树】—— 重绘 内容 的时候抽屉不受影响,反之亦然。
+ * ⚠️ `收草稿`/`填回草稿` 查的是 `document` 不是 `#内容`。编辑器搬回 `#内容`
+ *    之后这一点【仍然别改】:改成只查 `#内容` 看着能跑,但哪天编辑器又挪个地方
+ *    就会悄悄失忆,而且不报错。
+ */
+function 画抽屉() {
+  var 盒 = document.getElementById('抽屉');
+  if (!盒) return;
+  if (!看日志) { 盒.className = ''; 盒.innerHTML = ''; return; }
+  var h = '<div class="dim" data-收抽屉></div><div class="sheet">'
+        + '<div class="grab"></div>';
+  if (看日志) {
+    var 过 = 快照.过往日志;
+    h += '<div class="sheethd"><b>运行日志</b>'
+       + '<span class="tbtn" data-分享日志>'
+       + (快照.在凑日志 === '分享' ? '在打包…' : '分享全部') + '</span>'
+       + '<span class="tbtn mute" data-收抽屉>收起</span></div>'
+       + '<div class="sheetbody">';
+    if (!过) {
+      // 读盘那一下(三个档 + 一发 SQLite)。⚠️ 要说一句,不然看着像点了没反应。
+      h += '<div class="hint">在读盘上那 ' + (快照.日志存几天 || 3) + ' 天…</div>';
+    } else {
+      // 日子页签。⚠️ 条数为 0 的那天也【留着不藏】—— 藏了的话用户会以为
+      //    「只存了一天」;写出来「0 条」他才知道那天是真没跑。
+      h += '<div class="daypick">'
+         + (过.天们 || []).map(function (d, i, 全) {
+             // ⚠️ 只有最近三天有现成的叫法,再往前(日志存几天 调大的话)
+             //    就只能给日期 —— 「前前天」没人那么说。
+             var 倒 = 全.length - 1 - i;
+             var 名 = 倒 === 0 ? '今天' : (倒 === 1 ? '昨天'
+                    : (倒 === 2 ? '前天' : d.日.slice(5)));
+             return '<span class="' + (d.日 === 过.哪天 ? 'on' : '')
+                  + (d.条数 ? '' : ' none') + '" data-看哪天="' + esc(d.日) + '">'
+                  + 名 + ' · ' + 千分位(d.条数) + ' 条</span>';
+           }).join('')
+         + '</div>'
+         + '<div class="hint" style="margin:0">⚠️ 页签只管<b>看</b>。'
+         + '「分享全部」给的是<b>' + (过.存几天 || 3) + ' 天一整份</b> —— '
+         + '出事常常跨午夜,只发一天我这边会看到半截。</div>';
+      if (!过.共) {
+        h += '<div class="hint">这一天没有日志。</div>';
+      } else {
+        // ⚠️ 封了就要说封了,而且要说清楚「分享的是全部」——
+        //    不说的话用户会以为日志只有这 200 条、发出去也只有这些。
+        if (过.共 > 过.封) {
+          h += '<div class="hint" style="margin:0">这天共 <b>' + 千分位(过.共)
+             + '</b> 条,下面只画最近 <b>' + 过.封
+             + '</b> 条(画太多会把面板拖慢)。<b>分享发的是全部。</b></div>';
+        }
+        h += 日志块('past', 过.行们);
+      }
+      h += '<div class="hint">更早的已经自动删掉了。</div>';
+    }
+    h += '</div>';
+  }
+  // ⚠️ 2026-11-08:这儿原来还有一支 `else if (编辑中)` —— 编辑器搬去 `重绘` 当一页了。
+  //    搬的时候【三头一起拆】:这一支 · 下面那句 `if (编辑中) 填回草稿()` ·
+  //    上面闸口里的 `!编辑中`。只拆一头的话抽屉会在编辑时空着弹出来(一块灰蒙层
+  //    盖住整页,而且点不掉)—— 那正是 CLAUDE.md 18.10 记的「只拆一头」那种事故。
+  // ⚠️ 2026-11-04:这儿原来还有第三支 ——「这一轮跑这些」。
+  //    连同运行区那个入口一起删了(见 画运行区)。它分两段列「这一趟 / 其他任务」,
+  //    而 10-27 的 c 版已经把【完整任务列表】放回页面了,两段里的每一行
+  //    页面上都点得到;唯一多说的那句「这几个在这一趟里」现在是列表里的「排队」标。
+  //    ⚠️ 删的时候两头一起拆 —— 只拆一头就会留下「活着但够不着」的那一坨,
+  //    那正是 2026-11-01 那次事故的形状(CLAUDE.md 18.10)。
+  盒.innerHTML = h + '</div>';
+  盒.className = 'on';
+}
+
+// ══ 绘 ════════════════════════════════════════════════
+/* 顶栏两个钮的【出厂 class】。⚠️ 存一份在这儿,是为了不把 'tbtn mute' 这种
+   字面量抄到第二个地方去(铁律 8)—— HTML 里那两个 <span> 才是定义处。 */
+var 顶钮原类 = {};
+['右1', '右2'].forEach(function (id) { 顶钮原类[id] = document.getElementById(id).className; });
+
+function 重绘() {
+  刷横幅();       // ⚠️ 切屏也要刷:设置屏不画它,见 刷横幅()
+  // ⚠️ 快照每变一次就重绘一次,而重绘会把编辑器整个重画 ——
+  //    不先把表单收回草稿,用户正在打的字会被冲掉。踩过一次就够了。
+  if (编辑中 && 草稿 && document.querySelector('[data-字段]')) 收草稿();
+  var 内容 = document.getElementById('内容');
+  var 题 = document.getElementById('题');
+  var 右1 = document.getElementById('右1'), 右2 = document.getElementById('右2');
+  题.className = '';          // ⚠️ 页面屏会把它设成 pagebar,别的屏要擦掉
+  右1.textContent = ''; 右2.textContent = '';
+  // ⚠️ 要把【所有】data-* 清掉,不能只清 data-意图。
+  //    2026-09-26 栽过:顶栏右钮在「关掉」状态时挂了 data-关窗,切成「不登了」时
+  //    只清了 data-意图,data-关窗 留在上面 —— 而 派发 里 找('关窗') 排在前面,
+  //    结果点「不登了」实际去关了【另一个号】的窗,待定仓纹丝不动 = 看起来没反应。
+  //    这类按属性委托的钮,重置就该是「清空」,不是「清我这次想得到的那个」。
+  [右1, 右2].forEach(function (b) {
+    [].slice.call(b.attributes)
+      .filter(function (a) { return a.name.indexOf('data-') === 0; })
+      .forEach(function (a) { b.removeAttribute(a.name); });
+    // 🔴 2026-11-05 class 也要复位 —— 原来只清 textContent 和 data-*,
+    //    于是【上一屏的样子会跟过来】:任务屏把 右1 设成 `tbtn pick on`(蓝药丸:
+    //    自带底色和 padding),切到账号屏那边没人给 右1 设 class,结果右上角挂着
+    //    一个**空的蓝药丸**。当天在模拟器上实拍到(账号屏「✓ 完成」左边那一坨)。
+    // ⚠️ 复位放在这儿 = 一处 —— 任务屏那边原来单独写的 `右1.className='tbtn'`
+    //    已经删了。再有新屏加进来,不用记得「我也要复位一下」。
+    b.className = 顶钮原类[b.id];
+  });
+
+  if (!快照) {
+    题.textContent = '小菇爱评论';
+    内容.innerHTML = '<div class="hint">等引擎…</div>';
+    return;
+  }
+
+  画窗口条();   // ⚠️ 别的屏也要叫 —— 不清掉的话切走了它还挂在那
+  画跑条();     // 同上,而且它一出现/消失顶边就变,下面 报留边 跟着量
+  // ⚠️ 抽屉也得跟着快照刷 —— 跑着时它里头显示的是进度,不刷就定格了。
+  //    放在这儿(重绘开头)而不是结尾:它和 `内容` 互不相干,先后无所谓,
+    //  但必须在 `收草稿` 之后,否则会用旧草稿把刚敲的字盖回去。
+  画抽屉();
+  // ⚠️ 日志封了高、自己内滚 —— 那就得每次重绘把它钉回最新那条,
+  //    否则新日志进来了你还停在旧的位置,看起来像卡住了。
+  setTimeout(function () {
+    var lg = document.querySelector('[data-日志].run');
+    if (lg) lg.scrollTop = lg.scrollHeight;
+  }, 0);
+  // ⚠️ 条一出现/消失,顶边厚度就变了 —— 不补报的话浏览器会被它盖住一条
+  //    (报留边 自己去重,只在数字真的变了才发意图)
+  if (window.报留边) setTimeout(报留边, 0);
+  // ⚠️ 老的「切到屏 运行」可能还在路上(上一版 APK 的状态机 / 远程旧脚本),
+  //    认一下别让它把人送到一个不存在的屏上。
+  if (当前页 === '运行') 当前页 = '任务';
+  // 🔴 编辑器是【任务屏下面的一页】,而编辑态里底栏是藏着的 —— 万一 当前页
+  //    被别处改走了,就会出现「底栏没了、人也不在编辑器上」的死角。钉死在这儿。
+  if (编辑中) 当前页 = '任务';
+  document.body.classList.toggle('编辑态', !!编辑中);
+  if (当前页 === '账号') {
+    题.textContent = '账号 · ' + 号们().length;
+    if (编辑轮换) {
+      // ⚠️ 「完成」已经搬到列表底下那个大钮上了(见 画账号)。这儿是【退出路】:
+      //    `tbtn mute` = 和任务编辑器抽屉头上那个「取消」同一个样子,别给它蓝色——
+      //    一屏只有一个主钮,那个主钮在底下。
+      右2.textContent = '取消'; 右2.className = 'tbtn mute';
+      右2.setAttribute('data-意图', '取消编辑');
+    } else {
+      右1.textContent = '↕ 编辑轮换'; 右1.setAttribute('data-意图', '进编辑');
+      右2.textContent = '＋ 加号';   右2.setAttribute('data-意图', '加号');
+    }
+    内容.innerHTML = 画账号();
+    // ⚠️ 2026-11-05 这儿原来接着 `接拖动('拖', 'prow', '重排', '号', 8)` ——
+    //    和 ⠿ 一起拆了,`接拖动` 这个函数当天也整个删掉了(没有第二个叫它的人)。
+    //    ▲▼ 不用接线:它是普通的 <button>,走 `内容` 上那个 click 委托(派发)。
+  } else if (当前页 === '任务') {
+    // ⭐ 合屏(打样 v38):一页,按「跑没跑」换内容。
+    //    编辑器不再整页替换 —— 它住进抽屉,所以顶栏/底栏/运行状态全程在。
+    // ⭐ 一页,按「跑没跑」叠内容(照插件 task-panel.js:95)。
+    // ⚠️ 跑着【也要有完整的任务列表和「新增」】—— 用户 2026-10-27:
+    //    「这样运行时就不能运行新任务了」。所以运行区是【加在上面】,不是替掉列表。
+    // 🔴🔴 2026-11-08:编辑器是这一屏下面的【一页】,不再是抽屉。
+    //    ⚠️ 出口复用 `data-收抽屉` 那个 handler —— 它已经干着「先收草稿、再清
+    //       编辑中/草稿/弹层、再重绘」这一整套。另开一个出口就是第二份定义
+    //       (铁律 8),而这种「两个出口只改了一个」的事故本仓发生过。
+    //       属性名现在是有点名不副实,留着是因为【一个把手】比好听的名字要紧。
+    if (编辑中) {
+      题.textContent = 编辑中 === 'new' ? '新增任务' : '编辑任务';
+      右2.textContent = '取消';
+      右2.className = 'tbtn mute';
+      右2.setAttribute('data-收抽屉', '');
+      // 🔴🔴 编辑器这一页**自己不写 `内容.innerHTML`**,把 HTML 交给 `收尾()` ——
+      //    它会先和上一拍比一下,**一样就一个字节都不动**。
+      //    理由见 收尾() 里那一大段:换一次 innerHTML = 焦点和键盘当场没。
+      // ⚠️ 填回草稿 也归 收尾() 管(必须排在 innerHTML 那句后面,原因同上)。
+      return 收尾(
+        // ⚠️ 跑着也能改,但改的是【下一趟】—— 引擎读的是开跑那一刻的 `任务表` 快照,
+        //    这一趟读不到。不说这句的话,用户会以为当场生效(用户 2026-10-26 拍板)。
+        (在跑()
+         ? '<div class="hint" style="color:var(--warn);background:var(--warnbg);'
+           + 'border:1px solid var(--warnline);border-radius:8px;padding:6px 9px">'
+           + '⚠️ 正在跑 —— 这里改的东西<b>这一趟不算数</b>,<b>下一趟</b>才生效。</div>'
+         : '')
+        + 画编辑器()
+      );
+    }
+    题.textContent = 在跑() ? '运行中' : '任务库';
+    // ⭐⭐ 2026-11-05 跑着【不进多选态】。用户:「在多选任务运行时,还可以在下方
+    //    调顺序,这似乎有点矛盾? 此时应该要锁住多选这个选项吧?」成立 ——
+    //    而点完「开始」人就正落在这个态里(开跑不清 `多选中`),所以非清不可。
+    // ⚠️ 当天下午把 ⠿ 删了之后,这一条【理由换了但更硬】:
+    //    顺序改成「勾的先后」,于是一行上会同时出现【两个号,两个意思】——
+    //    左边勾框里那个是【下一趟】第几个跑,右边「排队 2」是【这一趟】第几个。
+    //    并存就是请人把两个队列读成一个。两个态互斥,这个岔口根本不存在。
+    //    (还有一半:多选态下 `data-改任务` 根本不发,整行让给勾了 ——
+    //     而「跑着也能改」(2026-10-26 用户拍板)要的正是整行点开编辑器。两个都要整行。)
+    // ⚠️ 读快照,不读那一下点击:`在跑()` 是引擎说的。点「开始」不当场清 ——
+    //    开跑可能被拒(任务有毛病 / 多仓不支持),拒了人还在多选态里、「开始」还在原地。
+    //    真跑起来了,下一拍快照一到这儿自己退出去(最多晚 250 毫秒)。
+    // ⚠️ 退出去【不留灰钮】:顶栏那个「多选」跑着时根本不画。
+    //    灰着、点了没反应、又不说为什么的控件,这屏上一个都不留。
+    //    ⚠️ class 的复位 2026-11-05 下午【挪走了】—— 收进 `重绘` 开头统一做
+    //       (两个顶栏钮一起复位成出厂 class)。原来在这儿单写一行 `右1.className='tbtn'`,
+    //       只治了这一个岔口,账号屏那个岔口没人治 -> 右上角一个空的蓝药丸,实拍到了。
+    // ⚠️ 代价说清楚:跑着没法先把【下一趟】要勾的挑出来,按一下「停止」才回来。
+    //    换来的是「跑着这一屏只有一个样子」。而这一趟的队列本来就是开跑那一刻拍死的
+    //    (`配置.任务ID`),勾和拖都动不了它 —— 锁掉的是一个只会骗人的控件,不是一项功能。
+    // ⚠️ 这【不是】插件那种「跑着就全锁」(铁律 26 明令别抄):任务编辑器、参数、
+    //    去浏览别的号,跑着照样全开。锁的只是「看起来在改这一趟队列」的那一个入口。
+    if (在跑()) {
+      多选中 = false;
+    } else {
+      var n = 快照.勾了几个 || 0;
+      右1.textContent = 多选中 ? ('☑ 多选 ' + (n || '')) : '☑ 多选';
+      右1.className = 'tbtn pick' + (多选中 ? ' on' : '');
+      右1.setAttribute('data-意图', '切多选');
+    }
+    右2.textContent = '＋ 新增'; 右2.setAttribute('data-意图', '新任务');
+    内容.innerHTML = (在跑() ? 画运行区() : '') + 画任务库();
+    // ⚠️ 2026-11-05 这儿原来接着 `接拖动('拖任务', ...)` —— 和那个 ⠿ 一起拆了
+    //    (两头一起拆:`data-拖任务` 的 render 和这条接线同时没,grep 两边都搜不着)。
+    //    ⚠️ 当天下午账号屏那个 ⠿ 也换成 ▲▼ 了,于是 `接拖动` 一个叫它的人都没剩,
+    //       整个函数跟着删掉(三头一起拆:render、接线、函数本体)。
+    //    状态机那边 `case '任务排序'` 故意留着 —— 理由写在 rotation.js 那一支上。
+  } else if (当前页 === '页面') {
+    画页面屏(题, 右1, 右2, 内容);
+  } else {
+    画设置屏(题, 右1, 右2, 内容);
+  }
+
+  收尾();
+}
+
+/** 上一拍编辑器画出来的那份(含地基塌了那条)。null = 现在不在编辑器里。 */
+var 上次编辑器 = null;
+
+/**
+ * 每一屏画完都要做的那两件事。⚠️ 抽出来是因为编辑器那一页会提前 return。
+ *
+ * 🔴🔴 **编辑器那一页多一条规矩:HTML 没变就一个字节都不动。**(2026-11-09 实测)
+ *
+ *    `内容.innerHTML = …` 是把整棵树拆了重建 —— **正在打字的那个 input
+ *    连同焦点一起没**,而安卓的软键盘跟着焦点走,所以键盘当场收回去。
+ *    这就是用户说的「还是无法输入」:焦点拿得到、字也打得进去,
+ *    但**键盘活不过 150 毫秒**。
+ *
+ *    而「快照每变一次就重绘一次」,**`日志` 多一行就算变了一次** ——
+ *    跑起来一秒好几行,编辑器等于永远打不了字。
+ *
+ *    当天抓到的那条链(模拟器实测,毫秒都对得上):
+ *      键盘弹起来 -> 窗口缩(808->495)-> resize -> 报留边【强制】上报
+ *      -> 状态机记一行「底盘留边 顶=120 底=0」-> 日志变 -> 快照变
+ *      -> 原生推 画() -> 重绘() -> innerHTML 换掉 -> focusout -> 键盘收回去
+ *    那条链的**源头**也治了(见 `addEventListener('resize', …)` 那一句),
+ *    但**这一头才是通用的** —— 日志会变的理由多了去了,源头堵不完。
+ *
+ * ⚠️ 比的是【这次生成出来的字符串】,不是 `内容.innerHTML` 读回来的那份 ——
+ *    浏览器序列化会重写引号和属性顺序,拿它比永远不相等,等于没比。
+ * ⚠️ 连 `编辑中` 一起比:不然「关掉任务 A 再打开任务 B,而两份 HTML 正好一样」时
+ *    会跳过重画,**B 的值填不进去**(值是 填回草稿 用 `input.value` 写的,不进 HTML)。
+ * ⚠️ 跳过的那一拍【不叫 填回草稿()】—— DOM 原样留着,值本来就在里面;
+ *    再填一次只会把光标位置弄没。
+ */
+function 收尾(编辑器体) {
+  // 🔴 返回键要用的那个旗子。放这儿 = **每一屏画完都会过一次**,而且自带去重。
+  //    散在各个 handler 里迟早漏一个,漏掉的症状是「返回键偶尔把 App 退了」。
+  报有子页();
+  var 内容 = document.getElementById('内容');
+  // 🔴 地基塌了:挂在【每一屏】最上面。这不是某个号的问题,是整个 App 的前提没了。
+  // ⚠️ 「页面」屏除外 —— 那一屏的内容区是给原生浏览器盖着的,画什么都看不见,
+  //    而且它的高度没算进 报留边,硬挂会被浏览器压住。别的屏都看得见就够了。
+  var 塌 = (当前页 !== '页面') ? 地基塌了条() : '';
+
+  if (编辑器体 != null) {
+    var 新 = 塌 + 编辑器体;
+    if (上次编辑器 && 上次编辑器.id === 编辑中 && 上次编辑器.html === 新) return;
+    上次编辑器 = { id: 编辑中, html: 新 };
+    内容.innerHTML = 新;
+    // ⚠️⚠️ 填回草稿 必须排在上面那句【后面】。`innerHTML = …` 把整棵树序列化再解析,
+    //    而 `input.value` 是 JS 属性、【不进 HTML】—— 放前面的话,地基一塌,
+    //    编辑器打开就是空白的,而且只在那种时候出现(最难查的那种)。
+    填回草稿();
+    return;
+  }
+
+  上次编辑器 = null;        // 不在编辑器里 —— 下次进来一定重画
+  if (塌) 内容.innerHTML = 塌 + 内容.innerHTML;
+}
+
+// ══ 设置屏 ══════════════════════════════════════════════════════
+
+/**
+ * 设置屏开着哪个子页。'' = 最外面那一层入口列表。
+ * ⚠️ 面板局部状态,**不进状态机** —— 它不是业务事实(和 `弹层开的是`/`手填的` 同一类,见 18.7)。
+ */
+var 设置页 = '';
+
+/**
+ * 原生推过来的版本实况。
+ *
+ * ⚠️⚠️ **两种形状都要认。** 1.3 及以前的 APK 推的是 `更新器.现状()` 那一句人话
+ *    (`远程 v2 · 试用中`),新 APK 推 JSON。面板能远程更新、APK 不能,所以
+ *    **新面板一定会落在旧原生上**,这不是过渡期,是常态。
+ * ⚠️ 推不过来的字段**那一行整条不画**,不画成「—」—— 画破折号等于告诉用户
+ *    「这儿坏了」,而它只是个旧包。(签到线管这叫「能力记号」。)
+ */
+var 版本实况 = { 脚本: '—' };
+
+/**
+ * 「下好了,等重启」—— 版本页最上面那颗钮靠它(用户 2026-11-11:
+ * 「设置 -> 检查更新后 若有更新 在最上方放一个『重启APP』键」)。
+ *
+ * 🔴 **面板不知道现在跑的是哪一版。** `版本实况.脚本` 是 `更新器.现状()` 吐的,
+ *    而那个数在**下载完的那一刻**就改了(`启用()` 里 `putInt("当前版本", 版本)`,
+ *    紧接着自己就说「下次启动生效」)—— 所以它是【盘上那一版】,不是在跑的那一版。
+ *    脚本版本是层 1 的东西,快照里没有,也不该为这个去改原生。
+ * ⭐ 那就换个问法:**「盘上这一版,是不是我这个进程起来之后才变的」。**
+ *    脚本是开进程那一刻读进去的,面板起来得更晚 —— 所以「这个进程第一次看见盘上是
+ *    哪一版」就等于「现在跑的是哪一版」。之后它再变,那就是下了新的、还没生效。
+ * ⚠️ 基线存 `localStorage` 不是存变量:转屏 / 被系统回收重建时**面板会重新加载**,
+ *    变量全没 —— 症状是「明明刚下好,转一下屏那颗钮就不见了」。
+ *    钥匙是 `快照.开机于`:换了进程它就变,上一条命的基线自己作废。
+ * ⚠️ `localStorage` 在 WebView 里可能被关掉/读不出来(隐私模式、清数据)——
+ *    读写都包 try,拿不到就退化成「只认这一次面板活着期间的变化」,不至于整页炸。
+ */
+var 版本基线键 = '版本基线';
+var 版本基线 = null;        // {开机于, 盘上} —— 内存里这份是为了别每拍都去碰 localStorage
+var 等重启 = false;         // 盘上那一版 != 在跑那一版
+var 等重启的版 = 0;         // 盘上那一版(0 = 内置版)
+
+/** 「远程 v20 · 试用中」-> 20;「内置版」-> 0。⚠️ 不用正则 —— 这个仓不写反斜杠(铁律 18)。 */
+/** 最上面那颗「重启 App」现在该不该画。见 画版本页 里那段注释。 */
+function 该画重启钮() {
+  if (!等重启) return false;
+  var V = 版本实况 || {};
+  if (V.下载中) return false;        // 安装包正在下 —— 这会儿重启是把它丢了
+  return true;
+}
+
+/**
+ * 「检查更新」那颗钮现在写什么、能不能点。
+ * 用户 2026-11-11:「点了检查更新…不知道有没有在检查。能不能显示正在检查、
+ * 正在下载、检查完已是最新」。
+ *
+ * 🔴 **「查完了没有」这件事,面板在 1.8 之前看不见。** `更新器.查更新()` 一开头
+ *    就垫一句「已是最新(vN)」当结论(它自己的注释:「没消息 = 已是最新」),
+ *    而真查完如果没新东西,**这句话一个字都不会变** —— 所以
+ *    「还在查」和「查完了、本来就是最新」在面板眼里长得一模一样。
+ *    1.8 起 `实况` 里多一个 `查着`(布尔,一直给),有它就按它走。
+ * ⚠️ 没有它的老包:退回「按下去之后等一个窗口」。窗口内写「正在检查…」,
+ *    窗口到了就把**原生那句结论**亮出来 —— **不自己编一句「已是最新」**。
+ *    结论真的晚到,下一拍照样会把它换上(快照一秒四拍,这一页跟着重画)。
+ * ⚠️ 安装包的进度**不画在这颗钮上** —— 它有自己那颗(「下载并安装新版」那行
+ *    已经在显示 `下载中`)。一颗钮只说自己那件事。
+ */
+var 查更新最多等 = 15000;      // 老包的兜底窗口。机上实测查一次约 2 秒
+var 查完亮多久 = 6000;         // 结论在钮上亮几秒,然后变回「检查更新」
+// ⚠️⚠️ **起步宽限**:按下去到原生把 `查着` 竖起来,中间要过一趟桥(意图 -> 服务 ->
+//    开线程 -> 动了 -> 推版本)。那一瞬 `查着` 还是 false,直接信它就会**立刻**
+//    判成「查完了」,把**上一次**的结论亮出来 —— 2026-11-11 在预览里实拍到:
+//    刚按完那一下显示的是「已是最新(v25)」,而那是上一次的话。
+var 起步宽限 = 2000;
+var 查更新按于 = 0;            // 0 = 没在查
+var 查更新基准 = '';           // 按下那一刻的 上次结果 —— 变了就说明有新结论
+var 查完于 = 0, 查完那句 = '';
+var 见过在查 = false;          // 这一轮里原生有没有明说过「在查」
+
+function 查更新钮() {
+  var V = 版本实况 || {};
+  var 在查;
+  if ('查着' in V) {
+    if (V.查着) 见过在查 = true;
+    // ⚠️ 见过旗之后就**只信旗** —— 不然一次很快的检查(旗竖起来又放下)
+    //    会被宽限硬拖够 2 秒,看着像卡住。
+    在查 = !!V.查着
+           || (!见过在查 && !!查更新按于 && Date.now() - 查更新按于 < 起步宽限);
+  } else {
+    在查 = !!查更新按于
+           && (V.上次结果 || '') === 查更新基准
+           && Date.now() - 查更新按于 < 查更新最多等;
+  }
+  // ⚠️ 这儿顺手记一笔「刚查完」—— 重绘一秒四次,这一句是幂等的。
+  if (!在查 && 查更新按于) {
+    查完于 = Date.now();
+    查完那句 = V.上次结果 || '查完了';
+    查更新按于 = 0;
+    见过在查 = false;
+  }
+  if (在查) return { 字: '正在检查…', 停: true };
+  if (查完于 && Date.now() - 查完于 < 查完亮多久) {
+    // ⚠️ 亮着这几秒里结论**还会再变一次**:老包上原生按下去先垫一句
+    //    「已是最新(vN)」,真结论(「更新到 vN」/「下好了」/错误)晚一点才到。
+    //    跟着换,别把一句过时的话亮满 6 秒 —— 而且换的时候把计时重置,
+    //    让新结论也有完整的几秒。
+    var 现结论 = (版本实况 || {}).上次结果 || '';
+    if (现结论 && 现结论 !== 查完那句) { 查完那句 = 现结论; 查完于 = Date.now(); }
+    return { 字: 查完那句, 停: true };
+  }
+  return { 字: '检查更新', 停: false };
+}
+
+function 盘上第几版(文) {
+  var s = String(文 || ''), i = s.indexOf('v');
+  if (i < 0) return 0;
+  var n = parseInt(s.slice(i + 1), 10);
+  return (isFinite(n) && n > 0) ? n : 0;
+}
+
+function 看看要不要重启() {
+  var T = (快照 && 快照.开机于) || 0;
+  // ⚠️ 快照还没到(或者是旧 rotation.js,没有这个字段)就什么都别断言 ——
+  //    宁可不画那颗钮,也不能画一颗没理由的。
+  if (!T) return;
+  // ⚠️⚠️ **占位值绝不能当基线。** 面板刚起来时 `版本实况` 是 `{脚本:'—'}`,
+  //    而「第一份快照」和「原生第一次 推版本」谁先到是**不定的**(推版本 挂在
+  //    `面板就绪` 上,快照是每 250 毫秒一拍)。拿 '—' 记基线 = 记成 0(内置版),
+  //    紧接着真版本推过来就判成「等重启」—— **每次开 App 都挂一颗假钮**。
+  var 脚 = (版本实况 && 版本实况.脚本) || '';
+  if (!脚 || 脚 === '—') return;
+  var 盘 = 盘上第几版(脚);
+  if (!版本基线 || 版本基线.开机于 !== T) {
+    try {
+      var 存 = JSON.parse(localStorage.getItem(版本基线键) || 'null');
+      if (存 && 存.开机于 === T) 版本基线 = 存;
+    } catch (e) {}
+    if (!版本基线 || 版本基线.开机于 !== T) {
+      版本基线 = { 开机于: T, 盘上: 盘 };     // 这个进程第一次看见 = 在跑的那一版
+      try { localStorage.setItem(版本基线键, JSON.stringify(版本基线)); } catch (e) {}
+    }
+  }
+  等重启 = (盘 !== 版本基线.盘上);
+  等重启的版 = 盘;
+}
+
+/**
+ * 设置屏:一层入口 + 五个子页(打样 v48 方案 C,用户 2026-11-09 拍板)。
+ *
+ * **为什么切子页**:原来 10 块一条道滚下来 1547px(18.15 量的),
+ * 旋钮、钮、纯说明文三种东西混排,而**整屏约八成是 `.hint`** —— 旋钮统共 2 个、钮 5 个。
+ *
+ * ⚠️⚠️ **打样时我自己反对过 C,理由是「分享全部」会从 1 跳变 2 跳** ——
+ *    那颗钮是出事那一刻用的,18.15 专门为它把日志卡挪到第一屏。
+ *    **核过之后那条理由不成立,这才敢走**:抽屉顶上本来就有一个 `data-分享日志`,
+ *    而运行区的「⋯ 看更早的」直接开抽屉 —— 出事那条路是
+ *    `运行屏 -> 抽屉 -> 分享`,**压根不经过设置屏**。设置里那颗是 18.15 说的
+ *    「两个入口一个把手」里的**第二个**把手,埋深一层不花什么。
+ *    (留着这段是因为:下次有人想把日志卡搬回设置屏第一屏时,得先看清这条路。)
+ *
+ * 🔴 **返回键必须一起治。** 子页从 1 个(编辑器)变成 6 个之后,
+ *    硬件返回键在子页里**直接退掉整个 App** —— `主界面.收起全屏窗()` 只认
+ *    「有没有借出去的全屏窗」,面板身上这一层它不知道。
+ *    治法见文件末尾的 `退一层()` + `报有子页()`,顺带把编辑器那个老洞一起补了。
+ */
+function 画设置屏(题, 右1, 右2, 内容) {
+  var 子 = null;
+  for (var k = 0; k < 设置子页们.length; k++)
+    if (设置子页们[k].键 === 设置页) 子 = 设置子页们[k];
+
+  if (!子) {
+    设置页 = '';              // 认不出就退回入口层 —— 别画一张白屏出来
+    题.textContent = '设置';
+    // 🔴 第一行是**悬浮窗**,它和下面那几行**不是一类东西**:
+    //    下面是进子页,这一行是**跳出去到系统设置**。
+    //    形状照旧(名字 + 现状 + ›)是故意的 —— 箭头在这个面板里就是「会走一趟」,
+    //    做成 Switch 会骗人:一拨就跳走、回来还是原样,像坏了(表白那边记过)。
+    // ⚠️ 为什么摆这儿:账号屏那块**开好之后整块消失**了(2026-11-10 用户定的),
+    //    而「我到底开过没有、想回头关掉」总得有个地方点得到 —— 就是这一行。
+    var 浮 = '<div class="entry" data-去悬浮窗>'
+           + '<span class="et">悬浮窗</span>'
+           + '<span class="ev"' + (缺悬浮窗 ? ' style="color:var(--warn)"' : '') + '>'
+           + (缺悬浮窗 ? '还没开' : '已开') + '</span>'
+           + '<span class="ea">&rsaquo;</span></div>';
+    内容.innerHTML = 浮 + 设置子页们.map(function (x) {
+      var 现 = x.现状 ? x.现状() : '';
+      return '<div class="entry" data-设置页="' + x.键 + '">'
+           + '<span class="et">' + esc(x.名) + '</span>'
+           + '<span class="ev">' + esc(现) + '</span>'
+           + '<span class="ea">&rsaquo;</span></div>';
+    }).join('');
+    return;
+  }
+
+  题.textContent = 子.名;
+  // ⚠️ 退出路走 **右2 + `tbtn mute`** —— 和编辑器、编辑轮换那两个「取消」
+  //    同一个位置、同一个 class(18.8:主钮在底下,退出路在右上角)。
+  //    打样图上我把「‹ 返回」画在左边,**那是错的** —— 顶栏的 h1 占着左边,
+  //    两颗钮都在右边。照已有的来,别为这一页另发明一个位置。
+  右2.textContent = '‹ 返回';
+  右2.className = 'tbtn mute';
+  右2.setAttribute('data-设置返回', '');
+  内容.innerHTML = 子.画();
+}
+
+/** 入口那一行右边写什么 —— 「我那个值现在是几」,不是一句介绍 */
+function 版本一行() {
+  var V = 版本实况 || {};
+  var 脚 = V.脚本 || '—';
+  // ⚠️ 「等重启」也挂到设置首页那一行上 —— 不然这件事只有点进版本页才看得见,
+  //    而用户没理由知道该进去看。(这一行本来就是子页的摘要。)
+  return (V.包版本名 ? V.包版本名 + ' · ' : '') + 脚
+       + (该画重启钮() ? ' · 等重启' : '');
+}
+
+var 设置子页们 = [
+  // ── 运行 ──
+  { 键: '运行', 名: '运行',
+    现状: function () { return (快照.窗口上限 || 3) + ' 个窗'; },
+    画: function () {
+      var 上限 = (快照.窗口上限 || 3);
+      return '<div class="card">'
+        + '<div class="fr"><span class="lb">同时最多开</span>'
+        // ⚠️ `inp num` 是 2026-11-09 补的:原来这两个数字框**一个 class 都没挂**
+        //    (浏览器默认样子),而编辑器里的数字框一直是 `inp num` —— 同一个 App
+        //    两种输入框。`.num` 本来就在(62px 居中),不是新发明的。
+        + '<input class="inp num" type="number"' + 范围属性(快照.窗口上限范围)
+          + ' step="1" data-参数="窗口上限" value="' + 上限 + '">'
+        + '<span class="lb">个页面窗口</span></div>'
+        + '<div class="hint">一个窗约 <b>250~320MB</b>,冷开要 30 秒。'
+        + '满了<b>不会拦你</b> —— 自动关掉最久没碰的那个'
+        + '(<b>正在跑的</b>和<b>你正看着的</b>永远不关)。<br>'
+        + '改小了<b>当场生效</b>,多出来的窗立刻关掉。<br>'
+        + '8GB 和 12GB 的机器扛得不一样,只有你知道该填几。</div>'
+        // ⚠️ 填 1 的代价要当场说清楚 —— 不说的话用户只会觉得「换号怎么变这么慢」。
+        //    预热本质上就是多开一个窗,和「只要一个窗」直接冲突(见 预热下一个)。
+        + (上限 <= 1
+           ? '<div class="hint" style="color:var(--warn);margin-top:6px">'
+             + '⚠️ 填 <b>1</b> 就<b>不预热下一个号</b>了 —— 换号要重新冷开窗,慢 <b>~30 秒</b>。'
+             + '想换号快一点就填 2。</div>'
+           : '')
+        + '</div>';
+    } },
+
+  // ── 帐号与备份 ──
+  { 键: '帐号', 名: '帐号与备份',
+    现状: function () { return '每 ' + (快照.备份每隔分 || 30) + ' 分钟'; },
+    画: function () {
+      return '<div class="card">'
+        + '<div class="fr"><span class="lb">每隔</span>'
+        // ⚠️ 2026-11-06:原来这儿是 `快照.备份每隔范围 ? …最少 : 5`(和 240)——
+        //    兜底那两个数就是第二份定义,顺手一起收了。理由见 范围属性。
+        + '<input class="inp num" type="number"' + 范围属性(快照.备份每隔范围) + ' step="5" '
+        + 'data-参数="备份每隔分" value="' + (快照.备份每隔分 || 30) + '">'
+        + '<span class="lb">分钟备份一次帐号信息</span></div>'
+        + '<div class="hint">'
+        + '把每个<b>还登着的</b>号的帐号信息抄一份存起来,号掉了可以在账号明细里<b>还原</b>。<br>'
+        + '⚠️ <b>只备健康的</b> —— 已经失效、或者信息库坏掉的号<b>不会</b>被备份,'
+        + '免得正好在号出事那一刻,把唯一能救它的那份好备份盖成废的。<br>'
+        + '一份 32KB。开机检查完会立刻先备一次(刚扛过重启的那份最值钱)。<br>'
+        + '⚠️ 备份和号在<b>同一台机器</b>上 —— 防的是「号掉了」,不防「手机没了」。'
+        + '后者要用账号明细里的<b>导出</b>。</div></div>'
+        + '<div class="card"><div class="hint">'
+        + '<b>导入账号</b> = 读一个之前导出的 <code>.cookies.db</code>,把那个号装回来。<br>'
+        + '⚠️ <b>选完文件要【重启 App】才生效</b> —— 跑着的窗口会把刚放进去的盖回去,'
+        + '这是 WebView 的机制,绕不过。</div>'
+        + '<div class="row"><button class="ghost" data-意图="导入号">导入账号</button></div></div>'
+        // ⚠️ 2026-10-25 用户问「这是何意」—— 光一个钮名说不清。
+        //    它最有用的场合恰恰是最不直观的那个:号【看起来还好好的】但其实已经死了。
+        + '<div class="card"><div class="hint">'
+        + '重新去读每个号的帐号信息,看<b>现在</b>里面是什么 —— 不开窗、不联网,只读本地。<br>'
+        + '刷新:帐号编号 · 失效没 · <b>信息库坏没坏</b> · 信息大小 · 上次登录。<br>'
+        + '⚠️ 什么时候用:<b>刚登完一个号</b>,或者疑心某个号不对劲。'
+        + '平时只有<b>开机</b>才自动查一次 —— 中途出的事(信息库被清空最常发生在刚登完那一下)'
+        + '要等下次开机才会发现,点这个就能<b>当场</b>查出来。</div>'
+        + '<div class="row"><button class="ghost" data-意图="刷号">重新检查所有帐号</button></div></div>'
+        // ⚠️ 这张纯说明卡**没有钮**,讲的是账号屏那颗「＋ 加号」。
+        //    更该搬去账号屏(说明跟着它说明的那颗钮走),但那要动另一屏 ——
+        //    这一批先放在「帐号」底下,它本来就是帐号的事。记在这儿别忘了。
+        + '<div class="card"><div class="hint">'
+        + '<b>加号 = 开一个真的浏览器窗口,登录不脚本化</b>(DESIGN §6)。<br>'
+        + '落地 <code>v.qq.com/x/search/</code> 是为了保证那个尺寸的登录弹窗一定出得来。<br>'
+        + '窗口住在这个界面里(不是悬浮窗)—— 所以你可以按 Home 切去腾讯/微信扫码,回来还在。'
+        + '<b>返回键收起它。</b></div></div>';
+    } },
+
+  // ── 排障与日志 ──
+  { 键: '排障', 名: '排障与日志',
+    现状: function () { return '存 ' + (快照.日志存几天 || 3) + ' 天'; },
+    画: function () {
+      // ⚠️ 两个钮分工:「查看」开抽屉;「分享全部」不用先看,直接发。
+      //    用户要的是后者(「好让用户可以发日志给我查看」),
+      //    但光有分享会让人不敢按 —— 不知道自己要发出去什么。
+      return '<div class="card"><div class="hint">'
+        + '跑的时候每一步都记一条 —— 换号、自愈、限流、发出去的 <code>feed_id</code>、'
+        + '哪个号的信息库坏了。<b>存 ' + (快照.日志存几天 || 3) + ' 天</b>'
+        + '(今天 + 前' + ((快照.日志存几天 || 3) - 1) + '天),过期自动删。<br>'
+        + '分享出去的那份还带上<b>发送明细</b>(留 ' + (快照.明细带几天 || 10) + ' 天):'
+        + '每一条评论几点发的、发给哪个任务、结局、<code>feed_id</code>。<br>'
+        + '⚠️ 出事了把这个<b>分享</b>给开发者 —— 比截图有用得多,'
+        + '截图只看得到最后十几条,日志是整趟。<br>'
+        + '里面<b>没有</b>密码、登录凭证、评论正文。'
+        + '</div>'
+        + '<div class="row"><button class="ghost" data-看日志>查看运行日志</button>'
+        + '<button class="ghost" data-分享日志>'
+        + (快照.在凑日志 === '分享' ? '在打包…' : '分享全部') + '</button></div></div>'
+        // ⚠️ 这一句是 v48 新加的,**不是装饰**:日志那颗钮在运行区也有一个
+        //    (18.15「两个入口一个把手」),而现在它在设置里埋深了一层 ——
+        //    得告诉人出事时不用绕到这儿来。
+        + '<div class="hint">出事那一刻不用绕到这儿:<b>运行屏日志上面那条「⋯ 看更早的」</b>'
+        + '开的是同一个抽屉,抽屉顶上就有「分享」。</div>';
+    } },
+
+  // ── 维护 ──
+  { 键: '维护', 名: '维护',
+    现状: function () { return ''; },
+    画: function () {
+      // 🔴 自己收摊重启。⚠️ 这不是「方便一点」,是【安全得多】:
+      //    用户自己去「强行停止」正是铁律 20 那个把 cookie 罐铲成空壳的动作。
+      return '<div class="card"><div class="hint">'
+        + '<b>导入、还原备份、修破损的信息库</b>都要换一个新进程才生效,'
+        + '这是 WebView 的机制(帐号信息一旦用过就钉死到进程结束),绕不过。<br>'
+        + '⚠️ <b>别用系统的「强行停止」</b> —— 它会打断 cookie 的写盘,'
+        + '正是这样<b>把号弄丢</b>的。用下面这个:先把 cookie 刷到盘上、等它刷完,再换进程。<br>'
+        + '关掉之后<b>自己会弹回来</b>(约 2 秒);万一没弹就从<b>通知栏</b>点一下 —— '
+        + '重启本身照样是成功的。'
+        + (在跑() ? '<br>⚠️ <b>现在正在跑</b> —— 重启会把这一趟断掉。' : '')
+        + '</div>'
+        + '<div class="row"><button class="ghost" data-意图="要重启App">重启 App</button></div></div>';
+    } },
+
+  // ── 版本信息 / 更新 ──
+  { 键: '版本', 名: '版本信息 / 更新',
+    现状: 版本一行,
+    画: function () { return 画版本页(); } }
+];
+
+/**
+ * 版本信息 / 更新。照小菇爱表白那一页重做的(用户 2026-11-09:「像小菇爱表白那页一样」)。
+ *
+ * 🔴 **两张卡,两个版本号,刻意分开** —— 这正是表白那页重做时解决的那件事:
+ *    「主程序」换版本要重装,「脚本」自己会更。混在一行里,用户永远分不清
+ *    **点「检查更新」能不能让 App 从 1.3 变成 1.4**(不能)。
+ *
+ * ⚠️ 每一段都先问「原生推过来了吗」,没推过来就**整段不画**。理由见 `版本实况`。
+ */
+function 画版本页() {
+  var V = 版本实况 || {};
+  var h = '';
+
+  // ⭐ 下好了、等重启 —— 最上面**就一颗钮,一个字说明都没有**
+  //    (用户 2026-11-11:「只须要一个按钮在最上方,不必加说明」)。
+  //    原来那张卡有标题 + 两段小字,他看完的结论是:要按的就那一颗。
+  //    ⚠️ 说明没丢 —— 「别用强行停止」那整段在**维护**那一页里,
+  //       而且按下去的 confirm 本来就会把「正在跑的话这一趟会断」说一遍。
+  // ⚠️⚠️ **有东西在下载的时候不画。** 用户原话:「有新脚本、也有主程序更新在下载的
+  //    情况下,最上头就出现重启APP,相当奇怪」。确实奇怪,而且有害:
+  //    那会儿重启等于把下到一半的安装包丢了。
+  //    判据:`等重启` 本身就意味着**脚本那一份已经下完并落盘**
+  //    (它比的是 `实况.脚本`,那个数要 `启用()` 搬完文件才变);
+  //    再加「APK 没在下」(`下载中` 空),两种更新就都落停了。
+  if (该画重启钮()) {
+    h += '<button class="big" data-意图="要重启App">重启 App</button>';
+  }
+
+  // ── 主程序 ──
+  if (V.包版本名) {
+    h += '<div class="card">'
+      + '<div class="vhd">主程序 <span class="vg">· 换版本要重新装一次</span></div>'
+      + '<div class="vline"><span class="vn">' + esc(V.包版本名) + '</span> <span class="vg">版</span>'
+      + (V.包版本号 ? ' &nbsp; <span class="vg">versionCode ' + esc(V.包版本号) + '</span>' : '')
+      + '</div>'
+      + (V.构建标记 ? '<div class="vline vsm vg">打包标记 ' + esc(V.构建标记) + '</div>' : '')
+      // ⚠️ 比的是 versionCode 不是版本名 —— 版本名是给人看的字符串,
+      //    "1.10" < "1.9" 这种比较会错。判断在原生那头做,这儿只负责画。
+      + (V.新包版本名
+         ? '<div class="vline vbad">⚠️ 有新版 <span class="vn">' + esc(V.新包版本名)
+           + '</span><span class="vg"> 版,点下面的钮装</span></div>'
+         : '')
+      + '</div>'
+      + (V.新包版本名
+         ? '<div class="row"><button class="ghost" data-意图="装新包">'
+           + esc(V.下载中 || '下载并安装新版') + '</button></div>'
+         : '');
+  }
+
+  // ── 脚本(层 2)──
+  h += '<div class="card">'
+    + '<div class="vhd">脚本 <span class="vg">· 联网更新下来的,换版本不用重装</span></div>';
+  var 脚 = String(V.脚本 || '—');
+  var 内置 = 脚.indexOf('内置版') === 0;
+  // 现状() 吐的是「远程 v2 · 试用中 · 拉黑过 1」—— 第一段是版本,后面是旗子。
+  var 段 = 脚.split(' · ');
+  h += '<div class="vline"><span class="vn">' + esc(段[0]) + '</span>'
+     + (内置 ? '<span class="vg"> 那一份</span>' : ' <span class="vg">版</span>')
+     + (段.indexOf('试用中') >= 0 ? ' <span class="pill warn">试用中</span>' : '')
+     + '</div>';
+  if (内置) {
+    // ⚠️ 这一支是**新装的人第一次打开会看到的**,话要说完:
+    //    ① 现在跑的是装包时带的那份(诚实)② **不用他做任何事** —— 更新器自己会拉。
+    //    不写②的话,用户会以为必须自己去点那颗钮。
+    // ⚠️ 这儿**不要**摆一条红色警告(「网上多半已经有更新的了」):装好之后
+    //    更新器已经自己查过一次,拿警告去提醒一件已经处理掉的事,
+    //    只会跟下一句「不用你点什么」自相矛盾。(表白那页写过两版才定下来。)
+    h += '<div class="vline vg">新版会自己拉,<b>不用你点什么</b>;拉到之后<b>下次启动</b>就换上。</div>';
+  }
+  if (V.上次查于) {
+    h += '<div class="vline"><span class="vg">上次检查于 </span>'
+       + '<span class="vt">' + esc(V.上次查于) + '</span>'
+       + (V.多久之前 ? '<span class="vg"> (' + esc(V.多久之前) + ')</span>' : '')
+       + '</div>';
+    if (V.上次结果) h += '<div class="vline vg">结果:' + esc(V.上次结果) + '</div>';
+  } else if (V.上次查于 === '') {
+    // 原生明确说了「没查过」—— 和「这个字段根本没推过来」不是一回事
+    h += '<div class="vline vg">还没查过更新</div>';
+  }
+  for (var m = 0; m < 段.length; m++) {
+    if (段[m].indexOf('拉黑过') === 0)
+      h += '<div class="vline vsm vbad">⚠️ ' + esc(段[m])
+         + ' —— 那一版连着两次没跑稳,已经自己退回去了</div>';
+  }
+  h += '</div>';
+
+  // ⭐ 钮自己报进度(见 查更新钮)。⚠️ 查着的时候**不让再点** ——
+  //    连点几下只会让原生并发查几遍,而且用户看不出第二下有没有生效。
+  var 查钮 = 查更新钮();
+  h += '<button class="big"' + (查钮.停 ? ' disabled style="opacity:.55"' : '')
+     + ' data-意图="查更新">' + esc(查钮.字) + '</button>';
+  // ⚠️ 「回到内置版」是出事时的退路,一个月点不到一次 —— 所以是 ghost 不是 big(18.8)。
+  //    已经在内置版上了就**画成灰的**:它不是「不能点」,是点了什么都不会发生。
+  h += '<div class="row"><button class="ghost"' + (内置 ? ' disabled style="opacity:.35"' : '')
+     + ' data-意图="回到内置版">回到内置版</button></div>';
+
+  if (段.indexOf('试用中') >= 0) {
+    // 🔴 「试用中」这个词现在就印在界面上,而一个字的解释都没有 ——
+    //    用户看到只会慌,**而它恰恰是一切正常**。只在真出现时画。
+    h += '<div class="banner"><b>「试用中」是什么意思:</b>这一版刚换上、还没确认跑得稳。'
+       + '连着两次开机都没跑稳,它会<b>自己</b>被拉黑并退回内置版 —— 你不用做任何事。</div>';
+  }
+
+  h += '<div class="card"><div class="hint">'
+    + '拉下来的<b>不当场用</b> —— 后台下、<b>下次启动生效</b>。跑到一半换脚本等于换了个状态机。<br>'
+    + '三道防线:<code>sha256</code>(只查下载有没有截断)→ <b>语法预检</b>(编不过一行都不执行)'
+    + '→ <b>启动看门狗</b>(连着两次没确认稳定就拉黑那一版、退回内置)。<br>'
+    + '⚠️ 仓有 <b>5 分钟 CDN 缓存</b>,推完之后最多要等 5 分钟才查得到。'
+    + '</div></div>';
+
+  // ⚠️ 报障那一行是 v48 新加的。在这之前要问用户「你跑的是哪一版」,
+  //    他得截三个地方;这一行一次给全。拿不到的字段自己会缺席,不留占位符。
+  var 牌 = ['com.jer.qqcomment'];
+  if (V.包版本名) 牌.push(V.包版本名 + (V.包版本号 ? '(' + V.包版本号 + ')' : ''));
+  牌.push(脚);
+  if (V.构建标记) 牌.push(V.构建标记);
+  h += '<div class="hint">报障时连这行一起截 ——<br><span class="vg">' + esc(牌.join(' · ')) + '</span></div>';
+
+  return h;
+}
+
+// ══ 点 ════════════════════════════════════════════════
+// ⚠️ 全部走事件委托 + data-* —— 不写 inline onclick(引号多转义一层,写错整个脚本都不跑)
+document.getElementById('底栏').addEventListener('click', function (ev) {
+  var d = ev.target.closest('[data-页]');
+  if (!d) return;
+  var 旧页 = 当前页;
+  当前页 = d.dataset.页;
+  编辑轮换 = false; 展开的 = null;
+  // ⚠️ 浏览器是【原生 WebView 盖在内容区上】,切走了要主动叫它藏起来 ——
+  //    不然它会一直浮在别的屏上面。切回来再显示,窗口始终不关(v26 第 3 条)。
+  if (旧页 === '页面' && 当前页 !== '页面') 发意图('藏浏览器');
+  // ⚠️ 这里原来还卡一个 `&& 快照.浏览中的号` —— 于是【跑着的时候切进来什么也不发】,
+  //    因为跑和浏览是两套:跑的时候 浏览中 是 null,看到的就是空态。
+  //    2026-10-24 拿掉那个条件:号id 可以是空,由状态机去挑(跑着就挑正在跑的那个)。
+  //    挑谁是【决策】,归 rotation.js,面板不自己算(铁律 15)。
+  //    ⚠️ 停着又没浏览过谁时,状态机那边 当前号 也是 null,开浏览器 开头就 return —— 安全。
+  if (当前页 === '页面' && 旧页 !== '页面' && 快照) {
+    发意图('开浏览器', { 号id: 快照.浏览中的号 || '' });
+  }
+  [].forEach.call(this.children, function (c) {
+    c.classList.toggle('on', c.dataset.页 === 当前页);
+  });
+  重绘();
+});
+
+document.querySelector('.top').addEventListener('click', 派发);
+document.getElementById('内容').addEventListener('click', 派发);
+// ⚠️ 横幅在 `#内容` **外面**,不挂这条委托的话里头那两个 data-* 一点反应都没有
+//    (和铁律 18.18 那颗「下载并安装新版」同一类静默失效)。
+document.getElementById('横幅').addEventListener('click', 派发);
+// ⚠️ 抽屉是 `#内容` 的兄弟,不挂上它里面的钮一个都不响应(编辑器就在里面)。
+document.getElementById('抽屉').addEventListener('click', 派发);
+document.getElementById('窗口条').addEventListener('click', 派发);   // 片和叉都走同一套委托
+
+function 派发(ev) {
+  var t = ev.target;
+  var 找 = function (k) { var e = t.closest('[data-' + k + ']'); return e && e.getAttribute('data-' + k); };
+
+  var 勾 = 找('勾');
+  if (勾) {
+    var 号 = 号们().filter(function (x) { return x.id === 勾; })[0];
+    发意图('改轮换', { 号id: 勾, 参与: !(号 && 号.参与轮换) });
+    return;
+  }
+  // ⭐ 换轮换顺序(2026-11-05 从 ⠿ 拖动换过来,照插件 moveProfile)。
+  // ⚠️ 【复用 `重排`】,没新开意图 —— 面板自己把换好的整个顺序算出来发过去。
+  //    新意图名本身不要 Java 加 case(default 原样转发),但复用这个还有两个好处:
+  //    状态机那一支和它的单测一个字都不用动,而「前端漏报一个就补在后面」那条兜底白送。
+  // ⚠️ 顺序从【快照】里取,不从 DOM 里数 —— 屏幕上那几行就是快照画出来的,
+  //    从 DOM 数等于把渲染结果再反解析一遍(⠿ 那套就是这么干的,顺手把自己坑了)。
+  var 上挪 = 找('上移'), 下挪 = 找('下移');
+  if (上挪 || 下挪) {
+    var 序 = 号们().map(function (x) { return x.id; });
+    var 甲 = 序.indexOf(上挪 || 下挪), 乙 = 甲 + (上挪 ? -1 : 1);
+    if (甲 < 0 || 乙 < 0 || 乙 >= 序.length) return;   // 头/尾:钮本来就禁着,这是第二道
+    var 换手 = 序[甲]; 序[甲] = 序[乙]; 序[乙] = 换手;
+    发意图('重排', { 顺序: 序 });
+    return;
+  }
+  var 删 = 找('删');
+  if (删) { if (confirm('删掉这个号?它的帐号信息(登录态)也会一起删掉。')) 发意图('删号', { 号id: 删 }); return; }
+  // ⚠️ 切屏统一由状态机发「切到屏」—— 面板不自己抢,否则两处各切一次会打架
+  // ⚠️ 关窗要排在切窗【前面】—— 那个叉是片的子元素,顺序反了点叉会被当成切窗
+  if (找('页后退')) { 发意图('网页后退'); return; }
+  if (找('页刷新')) { 发意图('网页刷新'); return; }
+  var 导出 = 找('导出'); if (导出) { 发意图('导出号', { 号id: 导出 }); return; }
+  // ⭐ 还原备份。⚠️ 要先问 —— 这是【拿旧的盖掉现在的】,盖错了现在这份就没了。
+  //    ⚠️ 意图名直接就是事件名,Java 那边不用加 case(default 原样转给状态机)。
+
+  var 还原 = 找('还原');
+  if (还原) {
+    if (confirm('把备份里那份帐号信息换回来?现在这一份会被盖掉。\n⚠️ 要重启 App 才生效。'))
+      发意图('要还原备份', { 号id: 还原 });
+    return;
+  }
+  var 关窗片 = 找('关窗'); if (关窗片) { 发意图('关窗口', { 号id: 关窗片 }); return; }
+  var 切窗 = 找('切窗');  if (切窗)  { 发意图('切窗口', { 号id: 切窗 }); return; }
+  var 浏览 = 找('浏览'); if (浏览) { 发意图('开浏览器', { 号id: 浏览 }); return; }
+  var 重登 = 找('重登'); if (重登) { 发意图('开登录窗', { 号id: 重登 }); return; }
+  var 关窗 = 找('关窗'); if (关窗) { 发意图('关窗口', { 号id: 关窗 }); return; }
+  var 预热 = 找('预热'); if (预热) { 发意图('预热', { 号id: 预热 }); return; }
+
+  var 展 = 找('展开');
+  if (展 && !编辑轮换) { 展开的 = (展开的 === 展) ? null : 展; 重绘(); return; }
+
+  // ── 屏② ──
+  var 勾t = 找('勾任务');
+  if (勾t) {
+    var tt = (快照.任务们 || []).filter(function (x) { return x.id === 勾t; })[0];
+    // ⚠️ 2026-11-05 读 `勾号`(0 = 没勾),快照里那个 `勾了` 换掉了
+    发意图('勾任务', { id: 勾t, 勾: !(tt && tt.勾号) });
+    return;
+  }
+  var 改t = 找('改任务');
+  // ⚠️ 跑着时也放行(用户 2026-10-26:「跑着也能改、下一趟生效」)——
+  //    入口是「跑这些」抽屉里的那几行。多选态下不放行:那时整行是用来勾的。
+  if (改t && !多选中) { 开编辑器(改t); return; }
+  var 发t = 找('发');
+  if (发t) { 发意图('开跑', { 任务id: 发t }); return; }
+
+  // ── 屏③ ──
+  var 模式 = 找('模式');
+  if (模式) { 收草稿(); 草稿.taskMode = 模式; 重绘(); return; }
+  // ── 设置屏的子页(打样 v48 方案 C)──
+  // ⚠️ 用 closest 不用 ev.target:入口那一行里有三个 span(名字 / 现状 / ›),
+  //    点中哪一个都该算点了这一行。
+  var 进设置 = ev.target.closest('[data-设置页]');
+  if (进设置) { 设置页 = 进设置.dataset.设置页; 重绘(); return; }
+  if (ev.target.closest('[data-设置返回]')) { 设置页 = ''; 重绘(); return; }
+
+  // ⭐ 抽屉(打样 v38)
+  if (ev.target.closest('[data-收抽屉]')) {
+    // ⚠️ 收之前先把表单收回草稿 —— 不然用户刚敲的字随抽屉一起没了。
+    //    (「取消」本来就该丢弃,但 `弃编辑` 那条路会走到这儿之后才清,顺序不能反。)
+    if (编辑中 && 草稿 && document.querySelector('[data-字段]')) 收草稿();
+    // ⚠️ 借来的两样大块头(试连那份全文、这个任务的正文)都要还 —— 和下面那句
+    //    清日志同一个理由,看一眼的代价不该是永久的
+    //    (5000 行 x 每 250 毫秒 stringify 一遍)。
+    if (编辑中) 出编辑器清场();
+    // ⚠️ 看日志 收起时要把【远端那份】也清掉 —— 那 200 条待在快照里的话,
+    //    快照每 250 毫秒就要多 stringify 一遍。看一眼的代价不该是永久的。
+    if (看日志) 发意图('收过往日志');
+    编辑中 = null; 草稿 = null; 看日志 = false;
+    弹层开的是 = null; 手填的 = {};
+    画抽屉(); 重绘(); return;
+  }
+  // ⚠️ `data-看这趟` 那个 handler 2026-11-04 删了 —— 连入口带抽屉一起拆的。
+
+  // ⭐ 过往运行日志(打样 v45)。
+  // ⚠️ 一个入口两个门把(铁律 18.11):设置屏那张卡 + 运行区那条「看更早的」,
+  //    两处都发 `data-看日志`,只有这一处处理。
+  // ⚠️ 先开抽屉再发意图 —— 读盘要几拍回话,先开着能看见「在读盘上那 3 天…」,
+  //    反过来会是「按了半秒没反应,然后突然弹一个抽屉」。
+  if (ev.target.closest('[data-看日志]')) {
+    看日志 = true; 画抽屉();
+    发意图('看过往日志');
+    return;
+  }
+  var 看哪天 = 找('看哪天');
+  if (看哪天) { 发意图('看过往日志', { 哪天: 看哪天 }); return; }
+  // ⚠️ 版本信息【不在快照里】(更新器刻意住在层 1),所以由这儿带过去 ——
+  //    查问题时「他跑的是哪一版脚本」是最该知道的一件事。
+  if (ev.target.closest('[data-分享日志]')) {
+    发意图('分享日志', { 版本: 版本信息 });
+    return;
+  }
+
+  // ⭐ 「挑一个」控件(目标页面 / 选评论池 共用,mockup v30 方案 D1)
+  var 开的 = 找('挑开');
+  if (开的) {
+    // 清单是空的(拉失败/还没回来)—— 这一下是「重试」,不是「展开」。
+    // ⚠️ 带 强制,绕过状态机那边 5 分钟的保鲜,不然这个钮点了也没反应。
+    if (ev.target.closest('[data-挑空]')) { 发意图('要剧集链接', { 强制: true }); return; }
+    弹层开的是 = (弹层开的是 === 开的) ? null : 开的; 重绘(); return;
+  }
+  var 手填了 = 找('挑手填');
+  if (手填了) { 手填的[手填了] = true;  弹层开的是 = null; 重绘(); return; }
+  var 回去了 = 找('挑回');
+  if (回去了) { 手填的[回去了] = false; 弹层开的是 = null; 重绘(); return; }
+  var 挑中了 = 找('挑中');
+  if (挑中了) {
+    var 给谁 = 找('挑给');
+    // ⚠️⚠️ 【写那个框,不写草稿】—— `重绘()` 开头自己又叫一次 `收草稿()`,
+    //    写草稿会被那一下读回来的框盖掉(铁律 18.6)。触发器模式下那个框是 hidden,
+    //    但照样是 `[data-字段]`,所以这里只有一条路、没有特例。
+    var 框 = 给谁 && document.querySelector('[data-字段="' + 给谁 + '"]');
+    // ⭐ 「选评论池」那一栏里的 `✎ 自己输入` 不是池名,是【换一种填法】。
+    //    挑它 = taskMode 切 '本地' 且把 remoteDrama 清空;挑一个真池 = 切回 '远程'。
+    // ⚠️ taskMode 不是表单字段,所以写草稿安全(和原来 `data-模式` 那条一样);
+    //    remoteDrama 是表单字段,所以写【框】不写草稿(铁律 18.6)。
+    if (给谁 === 'remoteDrama') {
+      收草稿();
+      草稿.taskMode = (挑中了 === 自填标记) ? '本地' : '远程';
+      if (框) 框.value = (挑中了 === 自填标记) ? '' : 挑中了;
+    } else if (框) {
+      框.value = 挑中了;
+    }
+    if (给谁) 手填的[给谁] = false;
+    弹层开的是 = null;
+    重绘();                       // 重绘 自己会 收草稿,把刚写进去的收走
+    return;
+  }
+  // ⭐ 顶上那块(#横幅,见 浮窗块)/ 设置屏入口第一行 —— 两处都发这两个
+  if (ev.target.closest('[data-受限]')) { 受限展开 = !受限展开; 重绘(); return; }
+  if (ev.target.closest('[data-去悬浮窗]')) {
+    if (window.安卓 && 安卓.去开悬浮窗) 安卓.去开悬浮窗();
+    return;
+  }
+  // ⭐ 「打开应用信息」(1.6 起)。⚠️ 这颗钮只在桥存在时才画(见那一段),
+  //    所以这儿不用再给「没有桥」留话 —— 留了也没人看得见。
+  if (ev.target.closest('[data-开应用信息]')) {
+    if (window.安卓 && 安卓.打开应用信息) 安卓.打开应用信息();
+    return;
+  }
+  var 勾字 = 找('勾字段');
+  if (勾字) { 收草稿(); 草稿[勾字] = !草稿[勾字]; 重绘(); return; }
+
+  var i = 找('意图');
+  if (!i) return;
+  if (i === '进编辑') {
+    编辑轮换 = true; 展开的 = null;
+    // ⭐ 拍底片 —— 「取消」要靠它倒回去(为什么需要:见 轮换原样 的声明)
+    轮换原样 = 号们().map(function (x) { return { id: x.id, 参与: !!x.参与轮换 }; });
+    重绘();
+  }
+  else if (i === '退出编辑') { 编辑轮换 = false; 重绘(); }
+  // ⭐⭐ 真的取消 —— 把进来那一刻的顺序和勾原样发回去。
+  // ⚠️ 复用现成的两个意图(`重排` / `改轮换`),没新开。
+  //    🔴 **理由不是「新意图要重装 APK」**(`收意图` 的 default 原样转发 = 层 2);
+  //    是复用白送两件事:状态机那两支和它们的单测一个字不用动,
+  //    而「前端漏报一个就补在后面」那条兜底也白送。
+  // ⚠️ 变了才发:没改过就只是关掉模式,不去白写一遍盘。
+  // ⚠️ 顺序先发、勾后发:两个互不相干(`改轮换` 按 id 找),这么排只是好读。
+  // ⚠️ 底片里的号可能已经不在了(编辑途中被引擎删掉/加进来):
+  //    `重排` 那边没点名的会补在后面、不认识的会忽略,`改轮换` 找不到就跳过。两边都兜得住。
+  else if (i === '取消编辑') {
+    var 底片 = 轮换原样 || [];
+    var 现在的 = 号们();
+    var 现序 = 现在的.map(function (x) { return x.id; }).join();
+    var 原序 = 底片.map(function (x) { return x.id; }).join();
+    if (原序 && 原序 !== 现序) 发意图('重排', { 顺序: 底片.map(function (x) { return x.id; }) });
+    底片.forEach(function (旧) {
+      var 今 = 现在的.filter(function (x) { return x.id === 旧.id; })[0];
+      if (今 && !!今.参与轮换 !== 旧.参与) 发意图('改轮换', { 号id: 旧.id, 参与: 旧.参与 });
+    });
+    编辑轮换 = false; 重绘();
+  }
+  else if (i === '加号')     发意图('加号');   // ⚠️ 切屏由状态机发「切到屏」,这里不抢
+  else if (i === '弃待定仓') 发意图('弃待定仓');
+  // ⚠️ 要问一次 —— 点下去 App 真的会关掉,没问过的话那是个惊吓不是功能。
+  // ⚠️⚠️ 这一条【必须在 `var i = 找('意图')` 后面】。第一版放在前面 ——
+  //    `var` 提升,i 是 undefined,比较永远不成立,**点了一点反应都没有、也不报错**。
+  else if (i === '要重启App') {
+    if (confirm((在跑() ? '正在跑,重启会把这一趟断掉。' + 跳行() : '')
+                + '要重启 App 吗?会先把 cookie 刷到盘上再关,关掉之后自己回来。'))
+      发意图('要重启App');
+  }
+  // ⭐ 页面屏右上角的「重新登入」。发的是【已有的】`开登录窗` ——
+  //    加号和重登本来就是同一条流水线(引擎服务.收意图 的注释写着)。
+  //    为它另开一个意图【不是不行】(`收意图` 的 default 原样转发 = 层 2);
+  //    是同一条流水线不该有两个名字 —— 两个入口迟早一个改了另一个没改。
+  //    ⚠️ 这儿原来写的是「加不了」:那是 2026-10-24 拆墙【之前】的实况,已经过时。
+  // ⚠️ 再挡一次 `这页登不上`:快照可能慢一拍,别在「刚翻成能用」那一瞬被点中。
+  else if (i === '重新登入') {
+    if (!快照 || !快照.这页登不上 || !快照.浏览中的号) return;
+    发意图('开登录窗', { 号id: 快照.浏览中的号 });
+  }  // ⚠️ 这里以前顺手开了 编辑轮换 —— 那个模式下卡片变成勾选框+拖动柄,
+  //    「浏览」钮根本不渲染。等于把用户送到一个【挑不了号】的地方。
+  else if (i === '去账号')   { 当前页 = '账号'; 编辑轮换 = false; 换底栏('账号'); 重绘(); }
+  else if (i === '开跑')     发意图('开跑');
+  else if (i === '停')       发意图('停');
+  // ⚠️ 两个意图名【状态机那边一字不差】—— Java 不认识它们,
+  //    走 `收意图` 的 default 原样转发(所以这整件事是层 2,能远程更新)。
+  else if (i === '暂停')     发意图('暂停');
+  else if (i === '继续')     发意图('继续');
+  else if (i === '立刻重试')  发意图('立刻重试');
+  else if (i === '跳过当前号') 发意图('跳过当前号');
+  else if (i === '刷号')     发意图('刷号');
+  else if (i === '导入号')   发意图('导入号');
+  else if (i === '收浏览器') { 发意图('收浏览器'); 重绘(); }
+  else if (i === '查更新')   {
+    // ⭐ 记下「按下那一刻」和「那会儿的结论」—— 老包上全靠这两样认「查完了没有」。
+    查更新按于 = Date.now();
+    查更新基准 = (版本实况 && 版本实况.上次结果) || '';
+    查完于 = 0;
+    见过在查 = false;
+    发意图('查更新');
+    重绘();                 // 当场变成「正在检查…」,别等下一拍快照
+  }
+  // 🔴🔴 这一行 2026-11-10 才补上 —— 在这之前「下载并安装新版」那颗钮
+  //    **按了什么都不会发生**:钮的 markup 从 1.4(层 2 v3)就在,
+  //    可派发器这条 else-if 链里【从来没有它】,点击就这么被吞了。
+  //    原生那头一直是好的 —— 直接 发意图('装新包') 能下、能校验、能弹装机框,
+  //    在模拟器上 1.4 -> 1.5 一次过。坏的只有这一行。
+  //    ⚠️ 教训:这条链【没有兜底分支】,意图名漏写或打错都不报错、
+  //       也不进日志,就是静静地没反应。以后加了新的 data-意图,
+  //       一定要回这儿补一条,而且要在真机上按一下。
+  else if (i === '装新包')   发意图('装新包');
+  else if (i === '回到内置版') {
+    if (confirm('回到 APK 内置的那一版脚本?重启之后生效。')) 发意图('回到内置版');
+  }
+  else if (i === '改名') {
+    // 微信/手机号登录拿不到昵称,「新号 1」得能改掉
+    var 谁 = 号们().filter(function (x) { return x.id === 展开的; })[0];
+    var 新名 = prompt('给这个号起个名', 谁 ? 谁.名字 : '');
+    if (新名 != null && 新名.trim()) 发意图('改名', { 号id: 展开的, 名字: 新名 });
+  }
+  else if (i === '切多选')   { 多选中 = !多选中; if (!多选中) 发意图('清空勾选'); 重绘(); }
+  else if (i === '切参数')   { 参数开 = !参数开; 重绘(); }
+  else if (i === '新任务')   开编辑器('new');
+  else if (i === '弃编辑')   { 出编辑器清场();
+                              编辑中 = null; 草稿 = null; 弹层开的是 = null; 手填的 = {};
+                              画抽屉(); 重绘(); }
+  else if (i === '试连')     { 收草稿(); 发意图('试连', { 剧名: 草稿.remoteDrama }); }
+  // ⭐ 「编辑评论池」:把刚试连拉到的那一池【整个】搬进编辑区(2026-11-10 用户要的
+  //    那条路:「有的人可能想复制一些去给本地模式用」;2026-11-11 他把钮改成这个名字,
+  //    并要求「把拉到的评论池全部都放过去编辑区」—— 本来就是全部,`全文` 是试连那份原文)。
+  // ⚠️ 搬完 taskMode 变「本地」、remoteDrama 清掉 —— 这个任务从此用**你改的这一份**,
+  //    不再每次去仓里拉。仓里那个池一个字都没动(钮上那行提示专门说了这句)。
+  // ⚠️ 这条【完全在面板里做完】,一个意图都没发 —— 它动的是 `草稿`(面板自己的东西),
+  //    状态机那头没有任何事要做。
+  //    (顺带纠一句老注释:新意图名**不是**层 1 —— `引擎服务.收意图` 的 default
+  //     会原样转给状态机,2026-10-24 就拆了。该不该新开意图另说,但别拿「要重装」当理由。)
+  // ⚠️ 改名字的时候**两头一起改**:markup 那个 `data-意图` 和这儿的分支。
+  //    派发链没有兜底 else,漏一头就是「点了悄无声息」(铁律 18.18 那颗「装新包」)。
+  else if (i === '编辑评论池') {
+    var 全文 = (快照.预览 && 快照.预览.全文) || '';
+    if (!全文) return;
+    收草稿();
+    草稿.taskMode = '本地';
+    草稿.bulletList = 全文.split(String.fromCharCode(10))
+                       .map(function (x) { return x.trim(); })
+                       .filter(function (x) { return !!x; });
+    // ⚠️ remoteDrama 是表单字段,写框不写草稿(铁律 18.6)。
+    //    bulletList 那个 textarea 这会儿还没画出来,所以写草稿是安全的 ——
+    //    下面 重绘() 开头的 收草稿() 查不到它,盖不掉。
+    var 池框 = document.querySelector('[data-字段="remoteDrama"]');
+    if (池框) 池框.value = '';
+    重绘();
+  }
+  else if (i === '存任务') {
+    收草稿();
+    出编辑器清场();
+    // ⚠️ `带正文` = 「草稿里这一份评论是人眼看过的」(编辑区真画出来过,或者刚从
+    //    评论池搬过来)。状态机靠它分辨**人把评论清光了**和**正文还没借到** ——
+    //    两种情况送上去都是「空」,但前者该存空的,后者要留住仓里那份。
+    //    (正文还在路上时 `草稿.bulletList` 是 undefined,所以这儿就是 false。)
+    发意图('存任务', { id: 编辑中 === 'new' ? null : 编辑中, 任务: 草稿,
+                       带正文: Array.isArray(草稿.bulletList) });
+    编辑中 = null; 草稿 = null; 画抽屉(); 重绘();
+  } else if (i === '删任务') {
+    if (confirm('删掉这个任务?')) {
+      出编辑器清场();
+      发意图('删任务', { id: 编辑中 });
+      编辑中 = null; 草稿 = null; 画抽屉(); 重绘();
+    }
+  }
+}
+
+/** 进编辑器。'new' = 新建一份默认草稿;否则拷一份现有的(改坏了「取消」还能退回去)。 */
+function 开编辑器(id) {
+  var 库 = (快照 && 快照.任务库) || {};
+  编辑中 = id;
+  // 🔴 新任务的默认值【只有一处定义】:rotation.js 的 `空任务()`,经快照 `任务默认` 送过来。
+  //    2026-11-05 之前这儿照抄了一份 —— 两份当时逐字一致,但那正是铁律 8 说的形状
+  //    (「两处定义同一件事,迟早对不上」)。**改默认值从此只动 rotation.js。**
+  // ⚠️ 拿不到就给空的,**不在这儿补一份兜底值** —— 补了就又是第二份定义。
+  //    空的后果只是表单那几个数字框是空的;存的时候 `存任务` 会
+  //    `Object.assign(空任务(), …)` 填齐,所以**存下来的永远是引擎那一份**。
+  //    (什么时候会拿不到:`资源.java` 的「退回内置」是**按文件**的,远程新面板配上
+  //     内置的旧 rotation.js 就可能没这个字段 —— 铁律 10 那条「推完 js 记得重打 APK」
+  //     说的就是这个窗口。)
+  草稿 = (id === 'new' || !库[id])
+    ? JSON.parse(JSON.stringify((快照 && 快照.任务默认) || {}))
+    : JSON.parse(JSON.stringify(库[id]));
+  // ⭐ 现有任务:它那几千条评论**不在快照里**(见 rotation.js 的 瘦任务库)——
+  //    单独借一份。到货之前 `草稿.bulletList` 是 undefined,编辑区画「正在取…」,
+  //    到了由 接任务正文() 填进来(一个来回,≤ 250 毫秒)。
+  // ⚠️ 新建的不用借:`任务默认` 来自 空任务(),bulletList 本来就是 []。
+  // ⚠️ 这一趟**不打网**,只是把仓里那份拷一下 —— 和下面要剧集链接(真打网、
+  //    5 分钟保鲜)不是一类东西,所以不用节流。
+  if (id !== 'new' && 库[id]) 发意图('要任务正文', { id: id });
+  // ⭐ 顺手要一次剧集直通链(「目标页面」那个下拉要用)。
+  // ⚠️ 节流在状态机那边(5 分钟保鲜)—— 面板只管开口要,别自己再记一份时间,
+  //    两处各记迟早对不上。
+  弹层开的是 = null; 手填的 = {};
+  // ⚠️ 一个抽屉只装一样东西。这儿原来关的是「这一轮跑这些」(2026-11-04 删了),
+  //    现在关的是运行日志 —— 而且【比原来更要紧】:画抽屉 里 `看日志` 排在
+  //    `编辑中` 前面,不关掉的话开编辑器会看见日志,编辑器整个出不来。
+  看日志 = false;
+  发意图('要剧集链接');
+  画抽屉();        // ⚠️ 编辑器住抽屉里,只 重绘 是打不开它的
+  重绘();
+}
+
+// 参数是【改一下就存】,没有保存钮(和账号那边的顺序一样,照插件 moveProfile)
+// 点别处收起 ▼ 那个弹层。
+// ⚠️ 挂 document 而不是 #内容 —— 点顶栏/底栏也该收起来。
+// ⚠️ 要放过【钮自己和弹层里的项】:它们由 派发 处理,这里再 重绘 一次会把那次点击作废。
+//    事件先到 派发(#内容)再冒泡到这里,所以 派发 已经处理完了,这里只管收尾。
+document.addEventListener('click', function (ev) {
+  if (弹层开的是 === null) return;
+  // ⚠️ 要放过【控件自己的那几个钮】:事件先到 派发(#内容)再冒泡到这里,
+  //    不放过的话 派发 刚处理完的那次点击会被这里的 重绘 作废 = 点了没反应。
+  if (ev.target.closest('[data-挑开],[data-挑中],[data-挑手填],[data-挑回]')) return;
+  弹层开的是 = null; 重绘();
+});
+
+// ⚠️ 同样要给抽屉挂一份 —— 编辑器里的下拉/数字框都在抽屉里。
+['内容', '抽屉'].forEach(function (id) {
+document.getElementById(id).addEventListener('change', function (ev) {
+  // ⭐ 从剧集直通链里挑了一个 → 填进「目标页面」。
+  // ⚠️ 挂 change 不是 click —— <select> 点开时就 click 了,那时候还没选。
+  // ⚠️ 先 收草稿 再覆盖:同屏别的输入框里刚敲的字,不先收就会被这次重绘吃掉。
+  // ⚠️ 挑回「从剧集直通链里挑…」(空值)【不清空】目标页面 —— 那是误触,
+  //    把用户刚填的网址抹掉毫无道理。
+  var 链el = ev.target.closest('[data-挑链]');
+  if (链el) {
+    if (链el.value) {
+      // ⚠️⚠️ 【写表单,不写草稿】。第一版写的是 `收草稿(); 草稿.目标URL = …; 重绘();`
+      //    —— 不管用,而且一声不响:`重绘()` 开头【自己又叫一次 收草稿()】,
+      //    把那个还空着的输入框读回来,正好盖掉刚赋的值。
+      //    旁边 `data-勾字段` 那条「收草稿 → 改草稿 → 重绘」能用,是因为勾选项
+      //    【不是】 `[data-字段]` 输入框,收草稿 根本不碰它。别照抄那一条。
+      var 目标el = document.querySelector('[data-字段="目标URL"]');
+      if (目标el) 目标el.value = 链el.value;
+      重绘();                     // 重绘 自己会 收草稿,把刚写进表单的收走
+    }
+    return;
+  }
+  var p = ev.target.closest('[data-参数]');
+  if (!p) return;
+  var 改 = {};
+  改[p.getAttribute('data-参数')] = parseInt(p.value, 10) || 0;
+  发意图('改参数', { 参数: 改 });
+});
+});
+document.getElementById('内容').addEventListener('click', function (ev) {
+  var g = ev.target.closest('[data-参数勾]');
+  if (!g) return;
+  var k = g.getAttribute('data-参数勾'), 改 = {};
+  改[k] = !((快照.参数 || {})[k]);
+  发意图('改参数', { 参数: 改 });
+});
+
+/** 原生叫它切屏(返回键退不动网页时,切回账号屏)。⚠️ 不发意图,避免绕一圈回来 */
+window.切到 = function (页) {
+  // ⚠️ 切屏要把设置的子页退回入口层 —— 不退的话下次点「设置」会直接落进
+  //    上回那个子页,而底栏上写着「设置」,人会以为自己点错了。
+  当前页 = 页; 编辑轮换 = false; 展开的 = null; 设置页 = '';
+  换底栏(页); 重绘();
+};
+
+/**
+ * 🔴 告诉原生:面板身上还有没有一层能退。
+ *
+ * **为什么非有不可**:`主界面.收起全屏窗()` 只认「有没有借出去的全屏窗」——
+ * 面板自己这一层(设置子页 / 编辑器 / 抽屉)它**完全不知道**,于是返回键
+ * **直接退掉整个 App**。编辑器从 18.11 起就带着这个洞(一次只开一个,碰得少),
+ * v48 把子页从 1 个变成 6 个之后,它就成了天天撞见的事。
+ * `主界面.接返回键()` 那段注释自己写着「每加一个子页都要在返回里补一条」——
+ * 这是从签到线(铁律 4)搬来的教训,这回补上了,而且**一个机制盖住三样**。
+ *
+ * ⚠️ **叫它的地方只有一处:`收尾()` 开头**(每一屏画完都会过那儿)。
+ *    散在各个 handler 里迟早漏一个,而漏掉的症状是「返回键偶尔退掉整个 App」——
+ *    偶发、没日志、复现不了,最难查的那一类。
+ * ⚠️ **变了才报**:`重绘` 一秒最多四次,每次都过桥是白烧;而且去重之后
+ *    放在 `收尾` 里等于零成本。
+ * ⚠️ 旧 APK 上 `安卓.有子页` 不存在 —— try 包着,整句变空操作,
+ *    行为退回「和 1.3 一样(返回键退 App)」,不会崩。
+ */
+var 上次报的子页 = null;
+function 报有子页() {
+  var 有 = !!(看日志 || 编辑中 || 设置页);
+  if (有 === 上次报的子页) return;
+  // ⚠️⚠️ **报成了才记账。** 第一版写成「先记账、再过桥,过不去也不回退」——
+  //    那样桥只要失败过一次(WebView 正在销毁之类),JS 这头就永远以为报过了,
+  //    而原生那头的旗子还停在旧值。症状是**返回键偶尔把整个 App 退掉,而且没有日志**
+  //    —— 偶发、复现不了、最难查的那一类。2026-11-09 打 1.4 之前查返回键时发现的。
+  // ⚠️ 旧包(1.3 及以前)没有这个桥方法 -> `安卓.有子页` 是 undefined -> 不记账,
+  //    每次 收尾 都会再试一下。代价只是一个 typeof 比较,随它去。
+  try {
+    if (typeof 安卓 !== 'undefined' && 安卓.有子页) {
+      安卓.有子页(有);
+      上次报的子页 = 有;
+    }
+  } catch (e) { /* 没报成就【不】记账 —— 下一拍重绘会再试 */ }
+}
+
+/**
+ * 返回键按下来时原生叫的:退掉盖在最上面那一层,退掉了回 true。
+ *
+ * ⚠️⚠️ **这儿不自己清变量,只是「替用户按一下屏幕上那个出口」。**
+ *    收草稿、发 `收过往日志`、清 `弹层开的是`/`手填的` 全挂在
+ *    `data-收抽屉` 那个 handler 上(18.11 说的「出口复用」)——
+ *    在这儿照抄一遍就是第二份定义,迟早漏一条(铁律 8)。
+ * ⚠️ 顺序是**盖在最上面的先退**,不能靠 `querySelector` 的文档顺序:
+ *    顶栏(`.top`,第 422 行)排在 `#抽屉`(441)**前面**,
+ *    拿一个逗号选择器会先选中设置屏那个「返回」—— 抽屉还盖着就退了底下那层。
+ */
+window.退一层 = function () {
+  var 门 = null;
+  if (看日志) 门 = document.querySelector('#抽屉 [data-收抽屉]');
+  if (!门 && 编辑中) 门 = document.querySelector('[data-收抽屉]');
+  if (!门 && 设置页) 门 = document.querySelector('[data-设置返回]');
+  if (门) { 门.click(); return true; }
+  // 旗子立着、出口却不在屏幕上 —— 不该发生。但宁可在这儿自己收掉,
+  // 也不能让返回键把整个 App 退了(那正是这件事要治的病)。
+  if (看日志 || 编辑中 || 设置页) {
+    if (看日志) 发意图('收过往日志');
+    看日志 = false; 编辑中 = null; 草稿 = null; 设置页 = '';
+    弹层开的是 = null; 手填的 = {};
+    画抽屉(); 重绘(); return true;
+  }
+  return false;
+};
+
+function 换底栏(页) {
+  // 🔴 顺手把「停在哪一屏」记下来。**挂在这儿,是因为它是唯一的漏斗** ——
+  //    切屏有两条路(`切到` 和派发里的 `去账号`),两条都要经过 换底栏。
+  //    散着写迟早漏一条,而漏掉的症状是「有时候记得有时候不记得」,最难查。
+  // ⚠️ 引擎自己发的 `切到屏`(收编完回账号、开跑跳任务)也走 `切到` ->
+  //    也会被记下来。**这是对的**:用户原话是「按照最后一次停留的地方」,
+  //    引擎把他送到哪儿,那儿就是他最后停留的地方。
+  try { localStorage.setItem(屏记忆键, 页); } catch (e) {}
+  [].forEach.call(document.getElementById('底栏').children, function (c) {
+    c.classList.toggle('on', c.dataset.页 === 页);
+  });
+}
+
+/* 🔴 2026-11-05 这里原来是 `接拖动()` —— 自己用 pointer events 做的拖动排序,
+   账号屏和任务屏共用。**两边都拆了,函数整个删掉。**
+
+   任务屏(上午):顺序改成「勾的先后」,⠿ 没有存在的理由了。
+   账号屏(下午):⠿ 拖动在真机上**一次都没成功过** —— `动()` 里 `兄弟.after(行)`
+       把正在拖的那一行在 DOM 里搬家,pointer capture 当场作废,pointerup 落不回手柄,
+       `松()` 不跑 -> 顺序不存、行卡在半路。实拍三连证写在 `画账号` 那段注释上。
+   ⚠️ 要是哪天又想做拖动排序:**别再从这个形状起手**。搬 DOM 的那一刻就输了;
+      要么只改 transform、松手那一下才真排序,要么老老实实用 ▲▼。
+   ⚠️ `case '重排'` / `case '任务排序'` 在状态机里【都还在】,别跟着删:
+      ▲▼ 现在就走 `重排`。 */
+
+// ══ 倒计时 ════════════════════════════════════════════
+// 【在这里自己算】—— 快照给的是绝对时间戳。这就是「服务不必为了刷倒计时每秒推一次」
+// 换来的东西(core/快照字段.md §0 第 2 条)。
+setInterval(function () {
+  var el = document.getElementById('倒计时');
+  if (!el || !快照) return;
+  // ⚠️ 歇着的时候【别倒数】—— `下一条发于` 那个时刻在暂停期间是冻住不动的,
+  //    照着它数会一路数到 0 然后卡在「0 秒」,看着像死机。
+  //    (真正的冻结在状态机里:`继续` 那一下把歇了多久从这些时刻里补回去。)
+  if (快照.手动暂停) { el.textContent = '已暂停'; return; }
+  if (!快照.下一条发于) { el.textContent = '—'; return; }
+  var 还有 = Math.max(0, Math.round((快照.下一条发于 - Date.now()) / 1000));
+  el.textContent = 还有 + ' 秒';
+}, 1000);
+
+// 版本信息是【原生状态】不进快照(更新器刻意住在层 1,见 更新器.java 文件头)
+/**
+ * 原生 -> 面板,推版本实况。**一根单独的线,不走快照**(它是原生状态,不是业务事实)。
+ *
+ * ⚠️⚠️ **两种形状都要认,而且会长期并存**:
+ *    · 1.3 及以前:一句人话(`更新器.现状()` 吐的 `远程 v2 · 试用中`)
+ *    · 之后:JSON(多了包版本、打包标记、上次查、上次结果、有没有新包)
+ *    面板能远程更新、APK 不能 —— **新面板落在旧原生上是常态**,不是过渡期。
+ * ⚠️ 认不出就当成「只有脚本那一条」,别抛 —— 抛了这根线就断了,整页都没版本。
+ */
+window.版本 = function (v) {
+  var o = null;
+  if (v && typeof v === 'object') o = v;
+  else { try { o = JSON.parse(v); } catch (e) { o = null; } }
+  版本实况 = (o && typeof o === 'object') ? o : { 脚本: (v || '—') };
+  版本信息 = 版本实况.脚本 || '—';
+  看看要不要重启();
+  if (当前页 === '设置') 重绘();
+};
+
+// 原生推权限状态过来 —— 没悬浮窗的话页面后台 67 秒就停摆,这条必须说清楚为什么
+// ⚠️ 这一发收的是**一个 boolean**,是 1.5 及以前那套。别改它的形状:
+//    面板能远程更新、APK 不能,所以「新面板 + 旧原生」是常态,这条线得一直认。
+window.提示 = function (缺浮窗) {
+  缺悬浮窗 = !!缺浮窗;
+  刷横幅();
+  重绘();          // 账号屏那块「开始之前」要跟着变
+};
+
+/**
+ * 1.6 起原生改推**一个对象**(用户 2026-11-11 要的):`{缺悬浮窗, 受限挡着}`。
+ *
+ * ⚠️ 为什么另起一个名字而不是把 `提示` 改成收对象:旧原生推的是 boolean,
+ *    旧面板收的也是 boolean —— 两边各自认各自那一发,谁都不会收到看不懂的东西。
+ *    (表白线管这叫「能力记号」:新东西另开一个口子,旧的那头当它不存在。)
+ * ⚠️ 原生会**两发都推**(先 提示 后 权限),所以这一发要能覆盖上一发的结论。
+ */
+window.权限 = function (j) {
+  var o = null;
+  if (j && typeof j === 'object') o = j;
+  else { try { o = JSON.parse(j); } catch (e) { o = null; } }
+  if (!o) return;                      // 认不出就当这一发没来过,别把状态搅乱
+  缺悬浮窗 = !!o.缺悬浮窗;
+  var 挡 = !!o.受限挡着;
+  // ⭐ 真被挡住了就**自动摊开一次**那一段(用户 2026-11-11 要的第三件)。
+  //    ⚠️ 只在「这台机器确实被挡」时摊 —— 多数手机根本不需要它,
+  //       默认收起那条结论(18.10 / 表白线)没变。
+  if (挡 && !受限挡着 && !摊过受限) { 受限展开 = true; 摊过受限 = true; }
+  受限挡着 = 挡;
+  刷横幅();
+  重绘();
+};
+
+/**
+ * 顶上那一块(缺悬浮窗时才有)。**账号 / 页面 / 任务 三屏一个样**
+ * (用户 2026-11-10:「账号屏/页面/任务 的黄条 都一致」)。
+ *
+ * 🔴 **设置屏不画**(用户同一句:「设置 不用黄条」)—— 它入口第一行就是
+ *    「悬浮窗 … 还没开 ›」,同一件事在同一屏喊两遍是噪音。
+ * ⚠️ 点击靠 `#横幅` 上那条 `派发` 委托(见文件末尾那几行 addEventListener),
+ *    **别在这儿挂 onclick** —— 那样 `data-受限` 那个展开就得另写一套。
+ */
+function 刷横幅() {
+  var b = document.getElementById('横幅');
+  if (!b) return;
+  var 要显 = 缺悬浮窗 && 当前页 !== '设置';
+  b.style.display = 要显 ? 'block' : 'none';
+  b.className = 要显 ? 'banner 浮窗' : 'banner';
+  b.innerHTML = 要显 ? 浮窗块() : '';
+}
+
+/**
+ * 把「我的顶栏多高、底栏多高」报给原生,它照着给浏览器留边。
+ * ⚠️ 为什么让面板报:底栏是这里的 HTML,加一个 tab、改一次字号高度就变了。
+ *    原生写死两边迟早对不上(而且对不上的表现是浏览器盖住半条底栏,很难看出原因)。
+ * ⚠️ 面板的 viewport 是 width=device-width,所以 1 CSS px = 1 dp;
+ *    乘 devicePixelRatio 才是原生要的设备像素。
+ */
+var 上次留边 = '';
+/**
+ * 报底盘留边。⚠️ `强制=true` 的那一路【不许去重】。
+ *
+ * 2026-09-27 踩过:加了去重之后,原生 `onServiceConnected` 那次补发被吃掉了 ——
+ * 而那次补发存在的理由正是「面板载完 60ms 就报过一次,当时服务还没绑上,意图被丢」。
+ * 去重把「第一次发丢了」和「这次没必要发」混成一件事 → 顶边/底边 一直 0 →
+ * **浏览器铺满整屏,顶栏、窗口条、底栏全被盖住**。
+ * 去重只该省掉「重绘触发的那些」,永远不该挡住显式补发。
+ */
+window.报留边 = function (强制) {
+  var 顶 = document.querySelector('.top');
+  var 条 = document.getElementById('窗口条');   // ⚠️ 它一出现顶边就厚了,不算进去浏览器会被盖住
+  var 跑 = document.getElementById('跑条');     // ⚠️ 同上。2026-10-24 新加的,漏算它 = 横幅被浏览器盖住
+  // ⚠️ 横幅本来就**没算进来**(2026-11-10 量到:报 50,而内容区真实起点 109)。
+  //    眼下咬不到人 —— 缺悬浮窗时原生压根开不出那个浮窗浏览器,两个条件互斥。
+  //    但这是颗哑雷:哪天横幅用来说别的事,页面屏上它就会被盖掉半截。补上,它藏着时高度是 0。
+  var 幅 = document.getElementById('横幅');
+  var 底 = document.getElementById('底栏');
+  var r = window.devicePixelRatio || 1;
+  var 高 = function (e) { return e ? e.getBoundingClientRect().height : 0; };
+  var 顶px = Math.round((高(顶) + 高(条) + 高(幅) + 高(跑)) * r);
+  var 底px = Math.round(高(底) * r);
+  // ⚠️ 只在变了的时候报 —— 每次重绘都发一遍等于给原生加一条没用的消息流
+  var 签 = 顶px + '/' + 底px;
+  if (!强制 && 签 === 上次留边) return;
+  上次留边 = 签;
+  发意图('报底盘留边', { 顶: 顶px, 底: 底px });
+};
+// ⚠️⚠️ **必须包一层,不能把 报留边 直接当 listener。**
+// 监听器会把 Event 对象当第一个实参传进去,而第一个形参正好是 `强制` ——
+// 于是**每一次 resize 都成了「强制上报」,上面那道去重整个失效**。
+// 后果不是「多发一条没用的消息」那么轻:每发一次,状态机就记一行
+// 「底盘留边 顶=… 底=…」-> `日志` 变了 -> 快照变了 -> 原生推 画() ->
+// `重绘()` 把 `内容` 整个换掉 -> **正在打字的输入框连同焦点一起没,键盘当场收回去**。
+// 2026-11-09 实测:弹一次键盘,一模一样的「顶=120 底=0」连记三条,
+// 三次重绘,中间那次正好把焦点踢掉(见 收尾() 里那一大段)。
+window.addEventListener('resize', function () { 报留边(); });
+
+/* 🔴 键盘弹起来时,把底下那块地让出来(2026-11-08,跟编辑器改成一页是一套)。
+ *
+ * ⚠️⚠️ 2026-11-09 实测之后这一段的身份变了:**它现在是兜底,不是主力。**
+ *    真正让地的是原生那一头 —— 主界面.java 的 insets listener 把
+ *    WindowInsets.Type.ime() 一起吃进 padding,WebView 自己就缩了
+ *    (实测 innerHeight 808 -> 495)。窗口一缩,innerHeight 和
+ *    visualViewport.height 一起缩,所以**下面这个差值恒为 0**。
+ *    留着它是为了「万一哪天窗口又不缩了」—— 换 ROM、动 targetSdk、
+ *    或者有人把那个 listener 改回去,那时候 visualViewport 还看得见键盘。
+ * ⚠️ 别再照 2026-11-08 写的那套去想「系统在 adjustResize / adjustPan 里挑一个」:
+ *    targetSdk 35+ 强制 edge-to-edge 之后**两个都不是** —— 系统谁也不挑,
+ *    它只把 ime() 这条 inset 交给你,吃不吃是应用自己的事。
+ *    manifest 里那句 adjustResize 是空话(证据写在那一行的注释里)。
+ * ⚠️ 只给 `.body` 加 padding-bottom,【不碰任何 position:fixed 的东西】——
+ *    挪 fixed 元素正是抽屉那套做法,而那套做法就是这次要治的病。
+ * ⚠️ 60px 那道闸:比这还小的变化多半是地址栏/圆角/系统手势条,不是键盘。
+ */
+function 盯键盘() {
+  var vv = window.visualViewport;
+  var 让 = vv ? (window.innerHeight - vv.height - vv.offsetTop) : 0;
+  if (!(让 > 60)) 让 = 0;
+  document.documentElement.style.setProperty('--键盘', Math.round(让) + 'px');
+  // ⚠️ 键盘是在【焦点已经进去之后】才弹起来的,所以浏览器那一次
+  //    「把焦点滚进视野」发生在让地之前 —— 不自己补一刀,正在打字的那个框
+  //    还是会留在键盘底下。
+  var el = document.activeElement;
+  if (让 && el && el.closest && el.closest('.body') && el.scrollIntoView) {
+    setTimeout(function () { el.scrollIntoView({ block: 'center' }); }, 0);
+  }
+}
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', 盯键盘);
+  visualViewport.addEventListener('scroll', 盯键盘);
+}
+
+// ⚠️ 底栏那个 `class="on"` 是写死在 HTML 里的首帧高亮(挂在「账号」那一格)。
+//    开机要是从记忆里读到了别的屏,得把高亮对齐过去,否则会出现
+//    「内容是任务屏、底下亮的是账号」这种一看就坏掉的样子。
+换底栏(当前页);
+
+// 告诉原生:我准备好了,可以推第一份快照
+if (window.安卓 && 安卓.面板就绪) 安卓.面板就绪();
+重绘();
+// ⚠️ 要等一帧再量 —— 刚 setContentView 时高度还是 0
+setTimeout(报留边, 60);
+</script>
+</body>
+</html>
