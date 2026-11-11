@@ -243,6 +243,30 @@ footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--hair);
     <div><span>sha256</span><b>2b8f5deb839724884c6d7e0ae495e60bead8564bb6c030a33270386ebccfa535</b></div>
   </div>
 
+  <h2 class="sec">尝鲜版 BETA</h2>
+
+  <p>想先试新东西的话,还有一个 <b>beta 版</b>。它是<b>另一个 App</b>
+     (名字叫「小菇爱评论(beta)」),和上面那个<b>并排装在同一台手机上</b>,
+     互不干扰 —— beta 出问题,正在跑的那个不受影响。</p>
+
+  <div class="warn">
+    <b>它的帐号是空的</b>
+    两个 App 的数据各自独立,beta 里要测得重新扫码登一次。
+    beta 也会更新得更勤、更容易出毛病 —— <b>日常用正式那个就好。</b>
+  </div>
+
+  <p class="alt" style="margin-bottom:10px">
+    <a href="https://gitee.com/flyten1129/qq-comment/releases/download/beta/qq-comment-beta.apk">下载 beta(国内线路)</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/xiaogubiaobai/qq-comment/releases">GitHub 上的 beta</a>
+  </p>
+
+  <!-- ⚠️⚠️ beta 这一段【刻意不印 sha256 和体积】。
+       `打包.py` 的 同步摘要() 是**通配替换**:整页所有 64 位十六进制、
+       所有「N,NNN 字节」都会被换成刚打那一包的。两个哈希并排放着,
+       打一次正式就会把 beta 那个悄悄改掉 —— 而这一页正是叫人自己核哈希的。
+       要给 beta 留校验单,写在它自己的 Release 正文里(一版一份,不会串)。 -->
+
   <footer>
     两条下载地址都是固定的,以后出新版还是它们,不用换链接。<br>
     这是自用工具,不是产品 —— 没有客服,也不保证适合你的用法。
