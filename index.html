@@ -261,7 +261,15 @@ footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--hair);
     <a href="https://github.com/xiaogubiaobai/qq-comment/releases">GitHub 上的 beta</a>
   </p>
 
-  <!-- ⚠️⚠️ beta 这一段【刻意不印 sha256 和体积】。
+  <div class="sum">
+    <div><span>beta 版本</span><b>1.9-beta</b></div>
+  </div>
+
+  <!-- ⚠️⚠️ 上面那个版本号由 `打包.py --通道 beta` 的 同步beta版本() 回填,别手改。
+       锚是「beta 版本</span><b>」—— 刻意避开 版本号锚 里的「当前版本 」,
+       那是正式那条锚的子串,共用会让「打一次正式」把 beta 这个数改成正式的版本号。
+
+       ⚠️⚠️ beta 这一段【刻意不印 sha256 和体积】。
        `打包.py` 的 同步摘要() 是**通配替换**:整页所有 64 位十六进制、
        所有「N,NNN 字节」都会被换成刚打那一包的。两个哈希并排放着,
        打一次正式就会把 beta 那个悄悄改掉 —— 而这一页正是叫人自己核哈希的。
