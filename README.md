@@ -29,7 +29,7 @@
 | **Gitee**(国内走这个) | https://gitee.com/flyten1129/qq-comment/releases/download/beta/qq-comment-beta.apk |
 | GitHub | https://github.com/xiaogubiaobai/qq-comment/releases |
 
-**beta 版本 1.9-beta**(这个数由 `打包.py --通道 beta` 自己回填,别手改)
+**beta 版本 1.10-beta**(这个数由 `打包.py --通道 beta` 自己回填,别手改)
 
 ⚠️ **它的帐号是空的。** 两个 App 的数据各自独立 —— beta 里要测,得重新扫码登一次。
 ⚠️ beta 会更新得更勤,也更容易出毛病。**日常用正式那个就好。**
