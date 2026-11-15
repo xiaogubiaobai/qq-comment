@@ -262,7 +262,14 @@
         var 框 = 找登录框();
         if (!框) return { 有: false };
         var r0 = 框.getBoundingClientRect();
-        return { 有: true, 宽: Math.round(r0.width), 高: Math.round(r0.height) };
+        // 🔴 `有码` 是给状态机那道「稳宽」闸用的:弹窗外壳先到、
+        //    **二维码是后到的**,稳宽放行时码可能还不存在 —— 那样 `摆成竖排`
+        //    会报「没找到二维码」退成横版小码,而且**再也不会重来**
+        //    (2026-11-15 在创作者页上实测:码只占屏宽 17%,该是 45%)。
+        // ⚠️ 用的就是 `找二维码` 本尊,不另写判据(铁律 8)——
+        //    它过不过闸,和 `摆成竖排` 待会儿问的是同一个问题。
+        return { 有: true, 宽: Math.round(r0.width), 高: Math.round(r0.height),
+                 有码: !!找二维码(框) };
       }
 
       if (步 === '放大登录框') {
@@ -340,18 +347,44 @@
        *
        * ⚠️ 为什么不能只靠 cookie(2026-09-26 实测):这次 QQ 扫码登进来,
        *    仓里 44 条 cookie **一条昵称都没有**(上一个号那次有 `qq_nick` ×2)。
-       *    腾讯给不给这个 cookie 不稳定,但**页面上一定有**:
-       *      <span class="title-ellipsis_1 user-nick">腾讯网友</span>
+       *    腾讯给不给这个 cookie 不稳定,但**页面上一定有**。
        *    插件只能读 cookie(它没有常驻页面),我们有 —— 就别自缚。
+       *
+       * 🔴🔴 **两个来源,新的那个在前**(2026-11-15 换落地页之后):
+       *    ① 创作者页 `v.qq.com/s/videoplus/host` 的 `<span class="username">`
+       *       —— 它是**页面自己的内容**,不是顶栏挂件,所以一定渲染得出来
+       *    ② 老的通栏 `.user-nick` —— 留着当兜底(浏览可能落在别的页)。
+       *       它**常常不出现**:那位鸿蒙用户 11-14 连吃 8 次「找不到 .user-nick」,
+       *       最后只能用兜底名。那正是换页的理由。
+       *
+       * 🔴🔴 **没登上就【绝不许】认昵称** —— 这是这一版最要紧的一条:
+       *    创作者页**登出时** `.username` 里写的是 **「腾讯网友」**
+       *    (2026-11-15 真页实测),那是匿名占位。
+       *    ⚠⚠ 而「腾讯网友」**又真的可能是某个号的昵称**(腾讯给没设过名字的人的
+       *       默认名,用户账号表里就有一个)—— **所以不能按名字拉黑**,
+       *       只能按**登录态**挡。判据直接用 `登录态` 第 ① 条那一个
+       *       —— 而且要的是**确定 'in'**(头像画出来了而且图也载好了),
+       *       **不是**「没看见『登录』钮」:那只排掉了 out,`pending` 照样会放行。
+       *    没登上就回 pending,外面那条「2 秒后再问、最多 8 次」自己会重试。
        */
       if (步 === '读昵称') {
-        var 区n = document.querySelector('#mod_head_user, .quick_user');
-        if (!区n) return { 昵称: null, 因为: '没有头像区' };
-        var 元n = 区n.querySelector('.user-nick, [class*="user-nick"], [class*="userNick"]');
+        var 态n = 判登录态().态;
+        if (态n !== 'in') {
+          return { 昵称: null,
+                   因为: (态n === 'out' ? '页面还没登上(顶栏还挂着「登录」)'
+                                       : '页面还没就绪(登录态 pending),先不认名字') };
+        }
+        var 元n = document.querySelector('.base-info .username, .username');
         var 名n = 元n ? (元n.textContent || '').trim() : '';
-        // ⚠️ 登出时这一片会是「登录」两个字 —— 别把它当昵称存下来
+        if (!名n) {
+          var 区n = document.querySelector('#mod_head_user, .quick_user');
+          var 元b = 区n && 区n.querySelector('.user-nick, [class*="user-nick"], [class*="userNick"]');
+          名n = 元b ? (元b.textContent || '').trim() : '';
+        }
+        // ⚠️ 登出时顶栏那一片会是「登录」两个字 —— 上面那道闸多半已经挡住了,
+        //    这一条留着是因为它挡的是**另一种**情形(顶栏已经换掉、但名字还没填)。
         if (名n && 名n.length <= 30 && 名n !== '登录' && 名n !== '登錄') return { 昵称: 名n };
-        return { 昵称: null, 因为: 名n ? ('不像昵称:' + 名n.slice(0, 16)) : '找不到 .user-nick' };
+        return { 昵称: null, 因为: 名n ? ('不像昵称:' + 名n.slice(0, 16)) : '找不到 .username / .user-nick' };
       }
 
       // 平时靠上面那两个 resize 事件自己维持,这一步是给原生【强制补一刀】用的
@@ -372,67 +405,8 @@
       }
 
       if (步 === '登录态') {
-        // ⚠️⚠️ 【顺序和插件相反,而且不能照抄它的判据】。
-        //    插件是「.quick_user 可见 → in」。2026-09-24 实测:现在的 v.qq.com 首页上
-        //    `.quick_user` 是个【容器】,里面装着下拉菜单(登录/个人中心/我的关注/退出…),
-        //    **登出时它照样 74×34 可见** —— 照抄会一律判成已登录,
-        //    等于把死号当活号派去发评论。
-        //
-        //    新判据:
-        //      ① `.quick_login` 可见 → out。这是【可靠的否定证据】,先查
-        //      ② 头像图【画出来了】而且【图数据也载好了】→ in。**两个都要。**
-        //
-        // ⚠️ 两个条件各管一件事,少任何一个都会错:
-        //
-        //    · 只看 `naturalWidth > 0` → 【登出时误判成已登录】。
-        //      2026-09-25 实测(模拟器 acc_7 登出态):`img.quick_user_avatar`
-        //      **登出时就在**,src 是站点公用默认头像
-        //      `vfiles.gtimg.cn/vupload/202005/07_common_avatar.png`(名字里就是 common),
-        //      `naturalWidth = 240`。光看这条会把死号判成活号派去发评论。
-        //
-        //    · 只看渲染尺寸 → 号刚登上、头像图还没下下来的那几百毫秒会先判成 in,
-        //      而插件(`background.js waitLoginAvatar`)这条硬判据是用户拍板定的:
-        //      「必须有头像 img 且 complete + naturalWidth>0」。
-        //
-        //    ⚠️ 尺寸这一条为什么管用 —— 2026-09-25 量到的祖先链:
-        //        IMG.quick_user_avatar         0×0   inline
-        //        DIV.quick_link _checklogin none 0×0 display:none   ← 登录态开关
-        //        DIV.quick_item quick_user    74×34  flex
-        //      头像的父容器 `.quick_link._checklogin` 登出时 `display:none`,
-        //      **那不是收起的下拉菜单,那就是腾讯自己的登录态开关**
-        //      (`data-avatarsize="40"`,登上了就是 40×40)。
-        if (看得见(document.querySelector('#mod_head_login:not(.none), .quick_login:not(.none)'))) {
-          return { 态: 'out' };
-        }
-        var 头 = document.querySelector('#mod_head_user, .quick_user');
-        if (头) {
-          // 优先精确命中右上角头像(插件实测过的真实 DOM)
-          var 像 = 头.querySelector('img.quick_user_avatar, img[data-type="avatar"]');
-          if (!像) {
-            // 兜底:改版换了类名时,挑块里【画出来最大】的那张。
-            // ⚠️ 面积必须 > 0,0×0 的一律不选 —— 宁可返回 pending,
-            //    也不能把一个死号判成活号派去发评论(见上面的三态注释)。
-            var 图们 = 头.querySelectorAll('img'), 最大 = 0;
-            for (var k = 0; k < 图们.length; k++) {
-              var 图 = 图们[k];
-              if ((图.src || '').indexOf('data:') === 0) continue;   // data: 的是图标不是头像
-              var rr = 图.getBoundingClientRect(), 面积 = rr.width * rr.height;
-              if (面积 > 最大) { 最大 = 面积; 像 = 图; }
-            }
-          }
-          if (像 && 看得见(像) && 像.complete && 像.naturalWidth > 0) {
-            return { 态: 'in', 头像: (像.src || '').slice(0, 80) };
-          }
-        }
-        // 兜底:通用「登录」文字,应对它改版换 id
-        var 些 = document.querySelectorAll('a,button,[role="button"],span,div,li');
-        for (var n = 0; n < 些.length; n++) {
-          var 原 = 些[n].textContent || '';
-          if (原.length > 20) continue;      // 「登录」很短;跳过长文本容器,防卡
-          var t = 原.replace(/\s/g, '');
-          if ((t === '登录' || t === '登錄') && 看得见(些[n])) return { 态: 'out' };
-        }
-        return { 态: 'pending' };
+        // ⚠️ 判据整个搬进 `判登录态()` 了 —— `读昵称` 也要用同一份(铁律 8)。
+        return 判登录态();
       }
 
       // ⚠️⚠️ 上面这几步必须排在下面那道守卫【之前】——
@@ -516,6 +490,82 @@
   var 已放大 = null;
 
   /** 照插件的 _visible:量出来有宽有高才算看得见 */
+  /**
+   * 这一页现在是什么登录态 —— **'in' / 'out' / 'pending' 三态**。
+   *
+   * 🔴🔴 2026-11-15 抽成函数,因为 `读昵称` 也要问它(铁律 8)。
+   *    在那之前 `读昵称` 自己写了半套:只查「顶栏还挂着『登录』吗」——
+   *    那是 **out 的否定证据**,不等于 **确定 in**。`pending`(DOM 还没就绪)
+   *    会被它放行,而那一瞬 `.username` 可能已经画出匿名占位「腾讯网友」。
+   *    ⚠️ 实测这一页上登录钮比名字早 **90 毫秒**出现,所以那个窗口**这一跑没撞上** ——
+   *       但那是**碰巧的先后**,不是任何东西保证的。用户 2026-11-15 原话:
+   *       「先判断状态,如果**确定已登陆**,再确定匿称」—— 对的就是这条。
+   */
+  function 判登录态() {
+
+    // ⚠️⚠️ 【顺序和插件相反,而且不能照抄它的判据】。
+    //    插件是「.quick_user 可见 → in」。2026-09-24 实测:现在的 v.qq.com 首页上
+    //    `.quick_user` 是个【容器】,里面装着下拉菜单(登录/个人中心/我的关注/退出…),
+    //    **登出时它照样 74×34 可见** —— 照抄会一律判成已登录,
+    //    等于把死号当活号派去发评论。
+    //
+    //    新判据:
+    //      ① `.quick_login` 可见 → out。这是【可靠的否定证据】,先查
+    //      ② 头像图【画出来了】而且【图数据也载好了】→ in。**两个都要。**
+    //
+    // ⚠️ 两个条件各管一件事,少任何一个都会错:
+    //
+    //    · 只看 `naturalWidth > 0` → 【登出时误判成已登录】。
+    //      2026-09-25 实测(模拟器 acc_7 登出态):`img.quick_user_avatar`
+    //      **登出时就在**,src 是站点公用默认头像
+    //      `vfiles.gtimg.cn/vupload/202005/07_common_avatar.png`(名字里就是 common),
+    //      `naturalWidth = 240`。光看这条会把死号判成活号派去发评论。
+    //
+    //    · 只看渲染尺寸 → 号刚登上、头像图还没下下来的那几百毫秒会先判成 in,
+    //      而插件(`background.js waitLoginAvatar`)这条硬判据是用户拍板定的:
+    //      「必须有头像 img 且 complete + naturalWidth>0」。
+    //
+    //    ⚠️ 尺寸这一条为什么管用 —— 2026-09-25 量到的祖先链:
+    //        IMG.quick_user_avatar         0×0   inline
+    //        DIV.quick_link _checklogin none 0×0 display:none   ← 登录态开关
+    //        DIV.quick_item quick_user    74×34  flex
+    //      头像的父容器 `.quick_link._checklogin` 登出时 `display:none`,
+    //      **那不是收起的下拉菜单,那就是腾讯自己的登录态开关**
+    //      (`data-avatarsize="40"`,登上了就是 40×40)。
+    if (看得见(document.querySelector('#mod_head_login:not(.none), .quick_login:not(.none)'))) {
+      return { 态: 'out' };
+    }
+    var 头 = document.querySelector('#mod_head_user, .quick_user');
+    if (头) {
+      // 优先精确命中右上角头像(插件实测过的真实 DOM)
+      var 像 = 头.querySelector('img.quick_user_avatar, img[data-type="avatar"]');
+      if (!像) {
+        // 兜底:改版换了类名时,挑块里【画出来最大】的那张。
+        // ⚠️ 面积必须 > 0,0×0 的一律不选 —— 宁可返回 pending,
+        //    也不能把一个死号判成活号派去发评论(见上面的三态注释)。
+        var 图们 = 头.querySelectorAll('img'), 最大 = 0;
+        for (var k = 0; k < 图们.length; k++) {
+          var 图 = 图们[k];
+          if ((图.src || '').indexOf('data:') === 0) continue;   // data: 的是图标不是头像
+          var rr = 图.getBoundingClientRect(), 面积 = rr.width * rr.height;
+          if (面积 > 最大) { 最大 = 面积; 像 = 图; }
+        }
+      }
+      if (像 && 看得见(像) && 像.complete && 像.naturalWidth > 0) {
+        return { 态: 'in', 头像: (像.src || '').slice(0, 80) };
+      }
+    }
+    // 兜底:通用「登录」文字,应对它改版换 id
+    var 些 = document.querySelectorAll('a,button,[role="button"],span,div,li');
+    for (var n = 0; n < 些.length; n++) {
+      var 原 = 些[n].textContent || '';
+      if (原.length > 20) continue;      // 「登录」很短;跳过长文本容器,防卡
+      var t = 原.replace(/\s/g, '');
+      if ((t === '登录' || t === '登錄') && 看得见(些[n])) return { 态: 'out' };
+    }
+    return { 态: 'pending' };
+  }
+
   function 看得见(e) {
     if (!e) return false;
     var r = e.getBoundingClientRect();
@@ -764,12 +814,30 @@
    *    二维码可能被重画成原尺寸。
    */
   /** 弹窗里最大的那个【方】图就是二维码(logo、钮上的小图标都很小)。没有返回 null。 */
+  /**
+   * 弹窗里那张二维码。
+   *
+   * 🔴🔴 **光靠「方的 + 够大」会认错**(2026-11-15 模拟器上实拍):
+   *    二维码不在的时候(码过期 / 还没渲染 / 这一版面没有它),这个判据会挑中
+   *    **登录按钮的图标** —— 微信/QQ/手机号那三个也是方的,放大之后轻松过 60px。
+   *    后果不是「没放大」,是 `放大二维码` 把一个图标按 ×13.22 吹成 **847×847**
+   *    糊在弹窗上。**认错比认不出糟得多。**
+   *
+   * → 加一条**源尺寸**判据:腾讯那张码的原图是 **300×300**,
+   *   而按钮图标只有 **28**(两页都量过)。门槛放 200,中间差着一个数量级。
+   * ⚠️ `canvas` 没有 `naturalWidth`(回 undefined)—— **照样放行**:
+   *    有些版面把码画在 canvas 上,而 canvas 不会是按钮图标。
+   * ⚠️ 判的是 `naturalWidth`(图自己的像素)不是 `width`(屏上尺寸)——
+   *    屏上尺寸会被我们自己放大过,拿它当判据等于用结果去判因。
+   */
   function 找二维码(弹窗) {
     var 码 = null, 最大 = 0;
     var 全部 = 弹窗.querySelectorAll('img,canvas');
     for (var i = 0; i < 全部.length; i++) {
       var e = 全部[i], r = e.getBoundingClientRect();
       if (r.width < 60 || Math.abs(r.width - r.height) > r.width * 0.15) continue;
+      var 源 = e.naturalWidth;
+      if (源 !== undefined && 源 < 200) continue;      // 图标,不是码
       if (r.width > 最大) { 最大 = r.width; 码 = e; }
     }
     return 码;
