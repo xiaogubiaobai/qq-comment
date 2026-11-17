@@ -187,6 +187,14 @@ footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--hair);
         <b>系统设置 → 应用 → 小菇爱评论 → 右上角那三个点 → 允许受限设置</b>,再回去开那个开关。
         这是安卓对所有侧载应用的统一做法,不是这个 App 特别要什么。
       </div>
+      <h3 style="margin-top:18px">顺手再放行一下省电</h3>
+      <p>同一趟里把这个也做了:<b>系统设置 → 应用 → 小菇爱评论 → 电池 → 不优化 / 无限制</b>。
+         国产 ROM 上通常还有一处:<b>设置 → 电池 → 后台耗电管理 / 应用启动管理 →
+         允许自启动、允许后台活动</b>。</p>
+      <p class="why">不放行的话,<b>屏幕关久了系统会把它的心跳停掉</b> ——
+         有人的手机中间停过 <b>47 分钟</b>,那一小时一条都没发出去。
+         App 自己会每隔几分钟把手机叫醒一次兜着,但系统对没放行的应用有配额,
+         <b>兜不干净</b>。这一下比 App 里任何设置都管用。</p>
     </div>
   </div>
 
@@ -262,7 +270,7 @@ footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--hair);
   </p>
 
   <div class="sum">
-    <div><span>beta 版本</span><b>1.12-beta</b></div>
+    <div><span>beta 版本</span><b>1.14-beta</b></div>
   </div>
 
   <!-- ⚠️⚠️ 上面那个版本号由 `打包.py --通道 beta` 的 同步beta版本() 回填,别手改。
