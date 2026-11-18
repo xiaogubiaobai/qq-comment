@@ -31,7 +31,11 @@
     --paper:#eef0f3; --card:#fff;
     --ink:#16181c; --ink2:#5b6270; --ink3:#8d95a3;
     --line:#e6e8ec; --soft:#f5f6f8; --acc:#2f6be6; --accbg:#eaf1ff;
-    --ok:#1f8b5f; --okbg:#e6f5ee; --warn:#b3730a; --warnbg:#fdf2e0; --warnline:#f0d9a8;
+    /* ⚠️ `--okline` 是 2026-11-18 补的,和 `--warnline` 配成一对。这一笔之后绿边框
+       有【两处】要用(跑完那张总结卡 + 页面屏那条跑条),先立一个名字 ——
+       两处各写一份 `#cfe8dc` 就是改一处忘一处的形状(铁律 8)。 */
+    --ok:#1f8b5f; --okbg:#e6f5ee; --okline:#cfe8dc;
+    --warn:#b3730a; --warnbg:#fdf2e0; --warnline:#f0d9a8;
     --bad:#c23b36; --badbg:#fdecec;
     /* 版本页专用:只给「时间」用。见 .vt 那一段 */
     --time:#7b4fc4;
@@ -54,17 +58,21 @@
   .tbtn{font-size:15px;font-weight:700;color:var(--acc);white-space:nowrap;flex:0 0 auto}
   .tbtn.mute{color:var(--ink3)}
 
-  /* 跑条:干跑是黄的,真发是红的 —— 真发是唯一会在别人评论区留下东西的状态,
-     不该和测试长一个样。不跑的时候整条不存在(display:none,高度 0)。 */
+  /* 跑条:干跑琥珀,**真发绿**(用户 2026-11-18:「跟『跑』字同色系」)。
+     绿的那个和顶上那枚「跑」药丸是同一对变量 —— 一屏里说同一件事就用同一个颜色。
+     🔴 这推翻了打样 v28 ③ 的「真发红」:红在这个面板里是「出事了」,而真发是
+        **正常状态**(干跑才是例外)。对常态喊红 = 喊狼来了。两种照样分得开:
+        绿 vs 琥珀,外加 🟢 / ⚠️ 两个自带颜色的字形。
+     不画的时候整条不存在(display:none,高度 0)—— `报留边` 量的就是它的实高。 */
   .runbar{display:none}
   .runbar.on{display:flex;align-items:center;gap:6px;padding:6px 12px;
              font-size:12px;line-height:1.5;border-bottom:1px solid var(--warnline)}
   .runbar.gan{background:var(--warnbg);color:#7a6224}
-  .runbar.real{background:var(--badbg);color:var(--bad);border-bottom-color:#f0c2c0}
+  .runbar.real{background:var(--okbg);color:var(--ok);border-bottom-color:var(--okline)}
   .runbar b{font-weight:700}
   .runbar .stage{margin-left:auto;background:#fff;border:1px solid var(--warnline);
                  border-radius:20px;padding:1px 8px;font-size:11px;white-space:nowrap}
-  .runbar.real .stage{border-color:#f0c2c0}
+  .runbar.real .stage{border-color:var(--okline)}
   .banner{background:var(--warnbg);color:#7a6224;font-size:12.5px;line-height:1.7;
           padding:8px 13px;flex:0 0 auto;display:none}
 
@@ -189,7 +197,7 @@
   /* ── 跑完留在运行区原位那张总结卡(打样「上次运行总结」方案 C,用户 2026-11-18 挑的)──
      ⚠️ 底色跟白卡【刻意不一样】。小菇爱表白那张结果卡踩过:
         「一度改成白底,结果跟上面的脚本列表卡连成一片,看着像同一个区块」。 */
-  .card.结果绿{background:var(--okbg);border-color:#cfe8dc}
+  .card.结果绿{background:var(--okbg);border-color:var(--okline)}
   .card.结果黄{background:var(--warnbg);border-color:var(--warnline)}
   .结头{display:flex;align-items:center;gap:8px;margin-bottom:6px}
   /* ⚠️ 热区要够拇指按。18.18 的另一半就是栽在这儿:勾选框的热区只给了那个 16px 的
@@ -2355,20 +2363,35 @@ function 画窗口条() {
  *
  * ⚠️ 只在「页面」屏出现。别的屏有自己的运行信息(屏① 整屏都是),这条是给
  *    「我正看着页面,它到底在干嘛」用的。
- * ⚠️ 干跑黄 / 真发红。真发是唯一会在别人评论区留下东西的状态,
- *    不该和测试长一个样(打样 v28 ③)。
+ * ⚠️⚠️ 而且只在**引擎正在用的那一页**上出现(`快照.这页是引擎的`,铁律 26 那个判据)。
+ *    2026-11-18 之前的条件是「在页面屏 && 在跑」—— 于是引擎跑着 acc_1、你去浏览
+ *    acc_2 的时候,这条横幅照样喊「真发 · 发出去的是真评论」,**而那一页压根没在发**。
+ *    更难看的是同一屏自相矛盾:顶栏那会儿画的是 `‹ ↻`(没上锁),两个说法当场打架。
+ *    用户 2026-11-18 报的就是这个:「只有在到正在运行跑的那个页面时才显示」。
+ * ⚠️ 判据**不自己算**,读状态机那一个(和顶栏那个 🔒 读的是同一个旗子)。
+ *    它自带 `运行中` 和 `显示中`,所以不用再 && 一个 `在跑()`。
+ *    `当前页 !== '页面'` 那一道留着:`显示中` 和「面板切到哪一屏」之间可能差一拍。
+ * ⚠️ 老引擎没有这个字段 ⇒ **整条不画**。那是安全的那个方向 —— 宁可少说一句,
+ *    也别对着一个没在发的页面喊「真发」(18.17「能力记号」同一条规矩)。
+ * ⚠️ 干跑琥珀 / **真发绿**(用户 2026-11-18 定:「跟『跑』字同色系」)。
+ *    🔴 这推翻了打样 v28 ③ 的「真发红」,理由要记住:**红在这个面板里是「出事了」**,
+ *    而「真发」是**正常状态**(干跑才是例外)。对常态喊红 = 喊狼来了,下次真出事
+ *    就没人当回事 —— 和「你停的不染黄」(18.28)同一条规矩。
+ *    两种状态照样分得开:绿 vs 琥珀,外加 🟢 / ⚠️ 两个自带颜色的字形。
  * ⚠️ 右边那个小片是【阶段】,直接读快照的 `这条卡在` —— 那是状态机自己报的,
  *    界面不另算一份(铁律 8)。两条之间没有在途的那一条时,退回显示运行状态。
  */
 function 画跑条() {
   var 条 = document.getElementById('跑条');
   if (!条) return;
-  if (当前页 !== '页面' || !在跑()) { 条.className = 'runbar'; 条.innerHTML = ''; return; }
+  if (当前页 !== '页面' || !快照 || !快照.这页是引擎的) {
+    条.className = 'runbar'; 条.innerHTML = ''; return;
+  }
   var 干 = !!快照.干跑;
   条.className = 'runbar on ' + (干 ? 'gan' : 'real');
   条.innerHTML =
       (干 ? '⚠️ <b>干跑</b> · 模拟发送,不会真的发出去'
-          : '🔴 <b>真发</b> · 发出去的是真评论')
+          : '🟢 <b>真发</b> · 发出去的是真评论')
     + '<span class="stage">' + esc(快照.这条卡在 || 快照.当前状态 || '') + '</span>';
 }
 
