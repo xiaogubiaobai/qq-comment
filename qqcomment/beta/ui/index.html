@@ -186,6 +186,24 @@
   .ghost{border:1px solid var(--line);background:#fff;border-radius:9px;
          padding:12px 0;font-size:16px;color:var(--ink2);flex:1}
   .row{display:flex;gap:7px;flex:0 0 auto}
+  /* ── 账号明细那一排(浏览 / 重新登录 / 导出 / 还原备份 / 删号)最多【五颗】挤一行 ──
+     🔴 `.ghost` 的 16px 在**哪个宽度上都放不下四个汉字**,2026-11-19 量的:
+
+       面板宽      360   375   393   411(S23 实机)
+       钮的内容格   51    54    58    62  px
+       「重新登录」16px 一律要 **64px** ⇒ **四个宽度全部折成两行**,
+       整排从 45px 被撑到 **74px**(而且五颗一起变高,不只是折的那两颗)。
+
+     ⚠️ **只缩这一排,别去动 `.ghost` 本身** —— 别处那些一行只有一两颗,16px 一点不挤
+        (设置屏那颗「重新检查所有帐号」八个字也放得下)。改了它就是为一处病去动十四处。
+     ⚠️ 12.5px **不是新数**,是这个面板既有的「小字」档(`.hint` / `.pill` / `.d7t` 都是它)。
+        四个汉字 = 50px,最窄的 360 上格子有 52.6px(gap 也从 7 收到 5)—— 留着余量,不是压线。
+     ⚠️ **钮本身一点没缩**:`padding:12px 0` 原样,高度还是 45px,拇指的靶子没变小。
+        用户要的是「字符合钮的大小」,不是把钮做小。
+     ⚠️ 没写 `white-space:nowrap`:真撞上更窄的屏,折两行虽然难看,但字是全的;
+        nowrap 会直接把字挤出格子。**折行是安全阀,别把它焊死。** */
+  .row.多钮{gap:5px}
+  .row.多钮 .ghost{font-size:12.5px}
 
   /* 状态 pill */
   .pill{display:inline-block;font-size:12.5px;padding:2px 9px;border-radius:11px;
@@ -527,12 +545,32 @@
   /* 展开的明细 */
   .detail{border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;
           margin-top:-7px;padding:9px 11px 10px;background:var(--soft);flex:0 0 auto}
-  .bars{display:flex;align-items:flex-end;gap:5px;height:42px;margin:7px 0 3px;position:relative}
-  .bar{flex:1;background:var(--acc);border-radius:2px 2px 0 0;min-height:2px}
-  .bar.zero{background:#d9dde3}
-  .goal{position:absolute;left:0;right:0;border-top:1px dashed #b6bcc5}
-  .barx{display:flex;gap:5px;font-size:9.5px;color:var(--ink3)}
-  .barx span{flex:1;text-align:center}
+  /* ── 明细里的「近 7 天」(打样 v55 方案乙)。数字为主,条只管这个号【自己】的起伏 ──
+     🔴 **高度全部写死 px**(用户 2026-11-19:「用乙,只要高度限制 px 就行」)。
+        条的高度是**百分比**,底子是 `.d7slot` 这 34px —— 所以不管哪个号、
+        发一百条还是发三条,这一块永远是同一个高度。明细是展开在账号列表里的,
+        它一变高,底下每一行都跟着跳。
+     🔴 **颜色一律中性(墨 / 灰)**。目标线去掉之后这张图只是【记录】不是【判断】,
+        而这一块的色彩语法是 绿=在跑 · 琥珀=有事要你看 · 红=出事了 · **蓝=能点** ——
+        四个都是判词,染上去就是在说一件我们并不知道的事。
+        (原来那套 `.bar` 是 `var(--acc)` = 蓝,正好撞在「蓝=能点」上。)
+     ⚠️ 条的高度**只写百分比,不写 px** —— 写 px 就要在 JS 里再抄一遍这个 34,
+        那是铁律 8 的形状。`.d7slot` 高度是定值,百分比自己算得出来。
+     ⚠️ `.d7bar` 必须 `display:block` —— 它是 span,inline 元素上的 height 不生效。
+        打样第一版就栽在这儿:槽画出来了、条**一根都看不见**,而且不报任何错。 */
+  .d7t{font-size:12.5px;line-height:17px;color:var(--ink2);font-weight:700;margin:8px 0 3px}
+  .d7t span{font-weight:400;color:var(--ink3)}
+  .d7{display:flex;gap:4px;margin-bottom:5px}
+  .d7col{flex:1;min-width:0;text-align:center}
+  .d7n{font-size:13.5px;line-height:18px;height:18px;color:var(--ink);
+       font-variant-numeric:tabular-nums}
+  .d7n.zero{color:#c3c9d2}
+  .d7slot{height:34px;margin-top:2px;display:flex;align-items:flex-end}
+  /* ⚠️ `min-height:2px`:1 条和 0 条得分得开,而 1/120 算出来是 0.8% = 不到一个像素。 */
+  .d7bar{display:block;width:100%;min-height:2px;background:#aeb6c2;border-radius:3px 3px 0 0}
+  .d7bar.zero{background:#e3e7ec}
+  .d7d{font-size:9.5px;line-height:13px;height:13px;color:var(--ink3);
+       margin-top:3px;padding-top:3px;border-top:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -2229,6 +2267,56 @@ function 空壳告示(x) {
        + '先<b>重启一次 App</b>(让 WebView 把库重建起来),再登这个号。</div></div>';
 }
 
+/**
+ * 明细里的「近 7 天」。数字为主,底下一排中性的条。
+ *
+ * 🔴🔴 **这一块在 2026-11-19 之前从来没画出来过。** CSS 在、渲染器在、
+ *    `存储.java` 那条 SQL 每次体检都跑**而且每个号都跑** —— 唯独快照里
+ *    没有 `近7天` 这个字段,于是答案一路被扔掉,一次都没画到屏幕上。
+ *    查法记一笔:**grep 这个字段名,看「谁产它、谁传它、谁画它」三头在不在**。
+ *    (同 18.23 那一族:警报装好了,线接在还没上电的那一端。)
+ *
+ * 🔴 **没有目标线。** 用户 2026-11-18:「其实不需要有目标值,只须要写上数字就好,
+ *    因为有时可能某一号当天发了上百条,有的号只发给几条」。去掉它顺手删掉了
+ *    `var 目标 = 50` 那份写死的第二定义(铁律 8),也删掉了「拿**现在**的配置
+ *    去比**历史**的柱子」那个矛盾。没有目标 ⇒ 没有「够不够」这个判词 ⇒ 颜色只能中性。
+ *
+ * ⚠️⚠️ **「最高 N」那半句不是装饰,是这排条【唯一的刻度】。**
+ *    每个号各按自己这 7 天的最高缩放,所以「最高 6」和「最高 120」**画出来一样壮**
+ *    —— 跨号比高矮没有意义(而且一次只展开一个号,本来也比不了)。
+ *    不把刻度写出来,这排条就是在骗人。
+ *    ⚠️ 换成**绝对刻度**更糟:小户那一周会全贴着地,它自己的起伏彻底看不见,
+ *       而那正是展开这个号时唯一想知道的事。刻度只有两种选法、两种各丢一半 ——
+ *       **这正是「数字才是主角」的原因:数字没有刻度问题。**
+ *
+ * ⚠️ 没查到(`null`)**整块不画**,不画成七个「—」(18.17 能力记号)。
+ *    查到了但一条没发,画的是七个灰 0 —— 那是真话,也正好答出「这个号这周没跑」。
+ */
+function 画近七天(x) {
+  var 近7 = x.近7天;
+  if (!近7 || !近7.length) return '';
+  var 共 = 0, 顶 = 0;
+  for (var i7 = 0; i7 < 近7.length; i7++) {
+    var c7 = 近7[i7].条数 || 0;
+    共 += c7;
+    if (c7 > 顶) 顶 = c7;
+  }
+  return '<div class="d7t">近 7 天 <span>· 共 ' + 共 + ' 条'
+       + (顶 ? ' · 最高 ' + 顶 : '') + '</span></div>'
+       + '<div class="d7">' + 近7.map(function (d) {
+           var c = d.条数 || 0;
+           // ⚠️ 百分比,不是像素 —— 槽高只许在 CSS 里定义一次(铁律 8)。
+           //    1/120 这种算出来不到 1%,`.d7bar` 的 min-height 兜住。
+           return '<div class="d7col">'
+                + '<div class="d7n' + (c ? '' : ' zero') + '">' + c + '</div>'
+                + '<div class="d7slot"><span class="d7bar' + (c ? '' : ' zero') + '"'
+                + (c ? ' style="height:' + Math.round(c / 顶 * 100) + '%"' : '') + '></span></div>'
+                + '<div class="d7d">'
+                + esc(String(d.日期 || '').slice(5).replace('-', '/'))
+                + '</div></div>';
+         }).join('') + '</div>';
+}
+
 function 画明细(x) {
   var h = '<div class="detail">';
   // ⚠️ 这一行印的是 `acc_N` —— 它是【仓名】(WebView 数据仓 + cookie 备份档
@@ -2248,25 +2336,14 @@ function 画明细(x) {
   var 登 = 登录时间(x.上次登录);
   if (登) h += kv('上次登录', esc(登.文));
   h += kv('今日', x.今日已发 + ' 条' + (x.今日被限流 ? ' · 被限流 ' + x.今日被限流 + ' 次' : ''));
+  // ⚠️ 紧贴着「今日」—— 两条说的是同一件事(这个号发了多少),中间塞别的就得来回扫。
+  //    原来它排在「信息备份」后面,而那一条讲的是 cookie,和条数毫无关系。
+  h += 画近七天(x);
   // ⭐ cookie 备份。⚠️ 【必须把几时备的一起写出来】——「有备份」和「备份是半小时前的」
   //    是两回事:三天前那份还原回来也是个过期的号。和 上次查于 同一条规矩。
   h += kv('信息备份', x.备份于
           ? MB(x.备份字节) + ' · ' + 多久以前(x.备份于)
           : '—(还没备过)');
-
-  // 近 7 天:一排迷你柱 + 虚线标目标 50(2 剧 × 25)。0 的那天是灰柱。
-  var 近7 = x.近7天 || [];
-  if (近7.length) {
-    var 目标 = 50, 顶 = Math.max(目标, Math.max.apply(null, 近7.map(function (d) { return d.条数; })));
-    h += '<div class="bars"><div class="goal" style="bottom:' + (目标 / 顶 * 42) + 'px"></div>'
-       + 近7.map(function (d) {
-           return '<div class="bar' + (d.条数 ? '' : ' zero') + '" style="height:'
-                + Math.max(2, d.条数 / 顶 * 42) + 'px"></div>';
-         }).join('') + '</div>';
-    h += '<div class="barx">' + 近7.map(function (d) {
-           return '<span>' + d.日期.slice(5).replace('-', '/') + '</span>';
-         }).join('') + '</div>';
-  }
 
   h += '<div class="hint" style="margin-top:6px">'
      + '⚠️ <b>有帐号信息 ≠ 号还有效</b>。token 可能早失效了(插件叫这个「登出残留态」)。'
@@ -2288,7 +2365,9 @@ function 画明细(x) {
   // ⚠️ 状态机那头还有一道硬闸(`跑着吗` -> 记一句 + break)。两道不是冗余:
   //    这儿管「别让人看见一个会坏事的钮」,那儿管「谁绕过面板发意图都不行」,
   //    而且它会留下一句话,不是铁律 14 那种「点了没反应」。
-  h += '<div class="row" style="margin-top:9px">'
+  // ⚠️ `多钮` 这个 class 不是装饰:这一排最多五颗,16px 的四个汉字放不下(见那条 CSS)。
+  //    新加一颗钮的时候记得先量一眼 —— 六颗的话 12.5px 也不够了。
+  h += '<div class="row 多钮" style="margin-top:9px">'
      + '<button class="ghost" data-浏览="' + esc(x.id) + '">浏览</button>'
      + (x.跑着 ? '' : '<button class="ghost" data-重登="' + esc(x.id) + '">重新登录</button>')
      + '<button class="ghost" data-导出="' + esc(x.id) + '">导出</button>'
