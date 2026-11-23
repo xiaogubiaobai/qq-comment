@@ -125,14 +125,14 @@ footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--hair);
 <body><div class="wrap">
 
   <div class="hero">
-    <div class="tag">v1.27 · ANDROID 11+</div>
+    <div class="tag">v1.28 · ANDROID 11+</div>
     <h1>小菇爱评论</h1>
     <p>给腾讯视频自动发评论。多个号同时跑,每个号一个独立的数据仓和窗口。</p>
   </div>
 
   <a class="cta" href="https://gitee.com/flyten1129/qq-comment/releases/download/apk/qq-comment.apk">
     下载安装包
-    <small>国内线路 · 1.27 · 3.59 MB</small>
+    <small>国内线路 · 1.28 · 3.59 MB</small>
   </a>
   <p class="alt">下不动?<a href="https://github.com/xiaogubiaobai/qq-comment/releases/latest/download/qq-comment.apk">换 GitHub 线路</a></p>
 
@@ -150,8 +150,7 @@ footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--hair);
   <div class="pre">
     <h2>先确认</h2>
     <ul>
-      <li><b>正式版要 Android 11 或更新;安卓 9 / 10 走下面那个 beta 版</b>
-          (1.26-beta 起降的门槛)。iPhone 不行。</li>
+      <li><b>Android 9 或更新</b>(1.28 起;以前要 11)。iPhone 不行。</li>
       <li><b>华为的机器:鸿蒙 4 及以下能装,鸿蒙 5 / NEXT(纯血鸿蒙)装不上。</b>
           判法:<b>设置 → 关于手机</b>,里面还有「Android 版本」这一行就能装。</li>
       <li>手上有要发评论的腾讯视频号 —— 微信 / QQ / 手机号 / 腾讯视频 App 扫码,哪条都行。</li>
@@ -236,14 +235,20 @@ footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--hair);
         那种环境里起不来。</dd>
 
     <dt>我的手机是安卓 9 / 10,能用吗?</dt>
-    <dd><b>能 —— 装下面那个 beta 版。</b>1.26-beta 起把门槛降到了<b>安卓 9</b>。<br>
-        <b>正式版仍然要 Android 11,这是故意的</b>:正式版给每个号一份独立的登录
-        信息,靠的是手机浏览器内核的「多数据仓」功能,那和安卓版本<b>没关系</b> ——
-        安卓 9 年代的机器多半没有这个功能,硬把门槛降下去,也只是装得上、
-        打开看见一张「内核不够」的红卡。beta 换了另一条路,不挑内核。<br>
+    <dd><b>能。</b>1.28 起正式版的门槛也降到了 <b>安卓 9</b>
+        (beta 从 1.26-beta 起就是)。<br>
         ⚠️ 老实说:安卓 9 这条<b>只在模拟器上验过一轮</b>(面板、任务、编辑器、
         键盘、页面窗口、断网页都走过),<b>还没在真手机上跑过</b>。
         遇到怪事用 <kbd>设置</kbd> → <b>分享全部</b> 把日志发来。</dd>
+
+    <dt>我的手机内核很旧,会不会打开就看见一张红卡?</dt>
+    <dd><b>1.28 起不会了。</b>以前正式版给每个号一份独立登录信息,靠的是手机
+        浏览器内核的「多数据仓」功能 —— 有些厂商的内核没有它,那种机器上
+        一打开就挂一张「内核不够」的红卡。<br>
+        1.28 换了另一条路(<b>一个号一个进程</b>,就是 beta 一直在用的那条),
+        靠的是系统接口,<b>和内核版本无关</b>。<br>
+        🟢 <b>你的号会自动搬过去,什么都不用做</b> —— 老数据原样留着没删,
+        万一哪里不对,装回 1.27 号还在。</dd>
 
     <dt>能同时跑几个号?</dt>
     <dd>看内存。<kbd>设置</kbd> 里可以填「同时最多开几个页面窗口」,
@@ -271,8 +276,8 @@ footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--hair);
 
   <div class="sum" style="margin-top:16px">
     <div><span>文件</span><b>qq-comment.apk</b></div>
-    <div><span>大小</span><b>3,763,665 字节</b></div>
-    <div><span>sha256</span><b>6d95fff9d798154cbf69e47d982e7d8325c232bc41b3705727de8418a7c38296</b></div>
+    <div><span>大小</span><b>3,766,585 字节</b></div>
+    <div><span>sha256</span><b>74712266ad5483205a02ca1cfa750b8d0ec289868a1fcfe48a445a68cb23d74b</b></div>
   </div>
 
   <h2 class="sec">尝鲜版 BETA</h2>
@@ -280,12 +285,6 @@ footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--hair);
   <p>想先试新东西的话,还有一个 <b>beta 版</b>。它是<b>另一个 App</b>
      (名字叫「小菇爱评论(beta)」),和上面那个<b>并排装在同一台手机上</b>,
      互不干扰 —— beta 出问题,正在跑的那个不受影响。</p>
-
-  <div class="warn">
-    <b>安卓 9 / 10 的人只能走这条</b>
-    正式版要 Android 11,beta 从 <b>1.26-beta</b> 起只要 <b>安卓 9</b>。
-    那条路只在模拟器上验过一轮,还没在真手机上跑过 —— 出怪事请发日志来。
-  </div>
 
   <div class="warn">
     <b>它的帐号是空的</b>
