@@ -243,6 +243,43 @@
         return { 正文: 正.slice(0, 400), 长: 正.length };
       }
 
+      /* ⭐⭐ 跑着的时候问一次**这一页的出口 IP**(2026-11-23,用户点的:
+            「为了证明有真的在运行中用设定的代理 IP」)。
+         🔴🔴 **必须从【这一页】发出去。** 代理是按**进程**设的
+            (`ProxyController` 是进程级单例),而这一页就住在那个进程里 ——
+            换成主进程那头的 `拉文本`,问回来的永远是本机真实 IP,
+            那种「测试」只会骗人(18.36 为这件事记过一次)。
+         🔴 `fetch` 是**异步**的,而 `跑一步` 的回话是 `evaluateJavascript`
+            **同步取值** —— 所以拆成两步:`测IP开` 把结果挂到 window 上,
+            `测IP看` 去取。轮询在 rotation.js 那头
+            (铁律 4:页面里不许有定时器驱动业务)。
+         ⚠️ 网址由 rotation.js 当参数给,这儿**一个字面量都不写**(铁律 15)。
+         ⚠️ `credentials:'omit'` —— 别把这一页的 cookie 带给回声服务。
+         ⚠️⚠️ 这一发**有可能被页面的 CSP 挡掉**(`connect-src`)。那会 reject 到
+            catch 里,`态` 是 '错' —— 那种时候**照样放行发评论**:
+            它是个诊断开关,不是闸。 */
+      if (步 === '测IP开') {
+        try {
+          window.__qqip = { 态: '跑' };
+          fetch(String(参数 || ''), { cache: 'no-store', credentials: 'omit' })
+            .then(function (r9) { return r9.text(); })
+            .then(function (t9) {
+              window.__qqip = { 态: '好', 文: String(t9 || '').slice(0, 200) };
+            })
+            .catch(function (e9) {
+              window.__qqip = { 态: '错',
+                                错: String((e9 && e9.message) || e9).slice(0, 120) };
+            });
+          return { 开了: true };
+        } catch (ea) {
+          return { 错: String((ea && ea.message) || ea).slice(0, 120) };
+        }
+      }
+
+      if (步 === '测IP看') {
+        return window.__qqip || { 态: '没开' };
+      }
+
       if (步 === '找发布区') {
         if (post) {
           post.scrollIntoView({ block: 'center' });
