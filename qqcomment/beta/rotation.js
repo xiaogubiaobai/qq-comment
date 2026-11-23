@@ -170,9 +170,24 @@
    */
   function 算这台机器没网吗(原因) {
     var u = String(原因 || '').toUpperCase();
+    /* 🔴🔴 **先摘掉「只是【这一个主机】连不上」那几种。**(2026-11-23,用户报的)
+       `ERR_TUNNEL_CONNECTION_FAILED` 的意思是「代理**到那个主机**的 CONNECT 没成」
+       —— 和 `CONNECTION_REFUSED`/`RESET`/`TIMED_OUT` 是同一类**单个主机**的事,
+       而那三个这张表早就排除了,理由也写在上面:「网好端端的时候天天发生」。
+       🔴 挂代理之后它**更天天发生**:腾讯一个页面几十个子请求,统计 / 广告 / 字体
+       那些域名,代理十有八九 CONNECT 不过去 ⇒ 一个**加载得好好的**页面随手就凑出
+       两条 TUNNEL ⇒ 整屏被盖上「正在连接…」。用户原话:
+       「明明看起来像连上了,进入页面,只差一点点就能 loading 完,就被迫重试」。
+       ⚠️ **代理真挂了照样盖得住** —— 那会儿主框架自己就失败了,走的是
+          `case '窗口失败'` 那条路,而那条路**不看这张窄表**(正看着就画)。
+          这张表只管「要不要拿子资源的错去盖一个已经打开的页」。 */
+    var 单个主机的 = ['TUNNEL', 'SOCKS_CONNECTION_HOST_UNREACHABLE'];
+    for (var j = 0; j < 单个主机的.length; j++) {
+      if (u.indexOf(单个主机的[j]) >= 0) return false;
+    }
     var 族 = ['NAME_NOT_RESOLVED', 'NAME_RESOLUTION_FAILED',
               'INTERNET_DISCONNECTED', 'NETWORK_CHANGED', 'NETWORK_IO_SUSPENDED',
-              'ADDRESS_UNREACHABLE', 'PROXY', 'TUNNEL', 'SOCKS'];
+              'ADDRESS_UNREACHABLE', 'PROXY', 'SOCKS'];
     for (var i = 0; i < 族.length; i++) if (u.indexOf(族[i]) >= 0) return true;
     return false;
   }
@@ -382,6 +397,22 @@
        而「主框架失败」那条线在这种情况下**一条都不会响**。 */
     if (!g) {
       if (!s.浏览中 || !s.浏览中.显示中) return s;
+      /* 🔴🔴 **主框架还在路上 ⇒ 一个字都不许盖上去。**(2026-11-23,用户报的)
+         `画一页` 在原生那头是 `loadDataWithBaseURL` —— 和 `导航到` 一样,
+         **它把正在加载的那一页当场顶掉**。用户原话:「只差一点点就能 loading 完,
+         就被迫重试」。那不是「重试」,是我们自己把它掐了。
+         💡 和上面那条「在飞就不重试」是**同一条规矩的第三面**:
+            一次是下一拍顶掉上一拍,一次是同一拍里两条命令互顶,
+            这一次是**判定**把加载中的页顶掉。
+            Chromium 的说法更干脆:**没 commit 的页面根本不算错误页**
+            (`ShouldAutoReload` 第一句就是 `handle->IsErrorPage()`),
+            而「热缓存那一种」正是**已经 commit 了**的 —— 所以这道闸
+            一点都不影响它,只把「还在转」的那一段让出来。
+         ⚠️ 代价说清楚:页面要是从此一直挂着、而且**一条错都不报**,
+            我们就不再盖那张页了。那也是浏览器的样子 —— Chromium 的网络栈
+            自己会超时,超时了就是 `窗口失败`,那条路照样把页画上去。 */
+      var 窗0 = s.窗口[s.浏览中.号id] || {};
+      if (窗0.状态 === '加载中') return s;
       var n0 = s.最近网络错;
       if (!网还不通(s, 现在) || (n0.连着 || 1) < 断网几条才算) return s;
       记(s, '错', '这一页看着起来了,但网不通(' + (n0.原因 || '') + ')', 现在, s.浏览中.号id);
