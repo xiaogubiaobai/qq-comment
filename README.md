@@ -10,7 +10,7 @@
 
 ## 下载
 
-**当前版本 1.26** · `qq-comment.apk`(3.59 MB)· 需要 **Android 11 或更新**
+**当前版本 1.27** · `qq-comment.apk`(3.59 MB)· 需要 **Android 11 或更新**
 (鸿蒙 5 / NEXT 装不上 —— 往下翻有一节)
 **安卓 9 / 10 的人走下面那个 beta 版**,它只要 Android 9。
 
@@ -60,10 +60,10 @@
 
 ## 怎么确认下载的没被动过
 
-1.26 的 sha256:
+1.27 的 sha256:
 
 ```
-d380f58eba6046ccc68b70b09baf6de73df9afc59e031a35acbcfce481dc332a
+6d95fff9d798154cbf69e47d982e7d8325c232bc41b3705727de8418a7c38296
 ```
 
 Windows:
