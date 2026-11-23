@@ -21,11 +21,11 @@
     }
   },
   "APK": {
-    "版本号": 27,
-    "版本名": "1.26-beta",
-    "sha256": "a9fbe208ff2072c381bb156b155b0e3010f5e719eaef940f6a9892595b30c819",
-    "大小": 4070209,
+    "版本号": 28,
+    "版本名": "1.27-beta",
+    "sha256": "9959d605353395c22d0e759e2f31616773e17b0af4d9567b63eeefe1b6bce7b5",
+    "大小": 4071125,
     "地址": "https://gitee.com/flyten1129/qq-comment/releases/download/beta/qq-comment-beta.apk",
-    "备用地址": "https://github.com/xiaogubiaobai/qq-comment/releases/download/v1.26-beta/qq-comment-beta.apk"
+    "备用地址": "https://github.com/xiaogubiaobai/qq-comment/releases/download/v1.27-beta/qq-comment-beta.apk"
   }
 }
