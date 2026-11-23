@@ -331,9 +331,9 @@
         「点开任务时画面会拉长」。抽屉没有这个问题。
      ⚠️ `position:fixed` 而不是 absolute:面板整个是 flex 柱子,
         absolute 会相对某个莫名其妙的祖先定位。 */
-  #抽屉{position:fixed;inset:0;z-index:40;display:none}
+  #抽屉{position:fixed;top:0;right:0;bottom:0;left:0;z-index:40;display:none}
   #抽屉.on{display:block}
-  .dim{position:absolute;inset:0;background:rgba(15,23,42,.3)}
+  .dim{position:absolute;top:0;right:0;bottom:0;left:0;background:rgba(15,23,42,.3)}
   .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--soft);
          border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(15,23,42,.2);
          max-height:88%;display:flex;flex-direction:column}
