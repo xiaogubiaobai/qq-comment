@@ -31,7 +31,7 @@
 | **Gitee**(国内走这个) | https://gitee.com/flyten1129/qq-comment/releases/download/beta/qq-comment-beta.apk |
 | GitHub | https://github.com/xiaogubiaobai/qq-comment/releases |
 
-**beta 版本 1.26-beta**(这个数由 `打包.py --通道 beta` 自己回填,别手改)
+**beta 版本 1.27-beta**(这个数由 `打包.py --通道 beta` 自己回填,别手改)
 
 🟢 **安卓 9 / 10 只能走这条。** 正式版要 Android 11,beta 从 **1.26-beta** 起只要 **安卓 9**
 (那条路只在模拟器上验过一轮,还没在真手机上跑过 —— 出怪事请发日志来)。
